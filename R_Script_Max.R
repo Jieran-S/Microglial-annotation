@@ -1,5 +1,5 @@
 # -------------------Internship - Max von Kolczynski -------------------
-# ------------sc-RNA analysis of microglia in Alzheimer context--------
+# ------------sc-RNA analysis of microglia in Alzheimer context--------
 
 #install packaged 
 install.packages("tidyverse")
@@ -18,7 +18,6 @@ library(patchwork)
 library(gridExtra)
 library(openxlsx)
 library(xlsx)
-library(rJava)  
 library(xlsxjars)
 
 #############################################--- read the data and set up seurat objects ---############################
@@ -28,33 +27,53 @@ library(xlsxjars)
 # The values in this matrix represent the number of molecules for each feature that are detected in each cell 
 
 # INPUT: filtered feature matrix .h5
+seurat_list <- lapply(list.files("Data/GSE98969_RAW", full.name =TRUE), 
+  function(file){
+    file_ind <- which(list.files("Data/GSE98969_RAW", full.name =TRUE) == file)
+    seurat_object <- read.delim2(file) %>% 
+      CreateSeuratObject(project = c("WT", "GpnmbKO_1", "GpnmbKO_2")[file_ind], min.cells = 3, min.features = 200)
+    seurat_object$stim <- sprintf("cond%s", file_ind-1)
+    seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^mt-")
+    seurat_object[["percent.rb"]] <- PercentageFeatureSet(seurat_object, pattern = "^Rp[sl]")
+    seurat_object %>% subset( subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 15 & percent.rb < 25 ) %>%
+      NormalizeData(normalization.method = "LogNormalize", scale.factor = 10000) %>%
+      FindVariableFeatures(selection.method = "vst", nfeatures = 2000) 
+    seurat_object
+})
 
-cond0.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
-cond1.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
-cond2.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
+# visualization by violin plot
+lapply(seurat_list, function(seurat_object){
+  Vplot <- VlnPlot(seurat_object, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+  print(Vplot)
+})
 
-# set up Seurat objects. The object serves as a container that contains both data (like the count matrix) and analysis (like PCA, or clustering results) for a single-cell dataset
-# the count matrix is stored in pbmc[["RNA"]]@counts.
-cond0 <- CreateSeuratObject(counts = cond0.data, project = "condition0", min.cells = 3, min.features = 200) # you could rename project to WT    
-cond1 <- CreateSeuratObject(counts = cond1.data, project = "condition1", min.cells = 3, min.features = 200) # you could rename project to GpnmbKO_1  
-cond2 <- CreateSeuratObject(counts = cond2.data, project = "condition2", min.cells = 3, min.features = 200) # you could rename project to GpnmbKO_2 
-
-cond0$stim <- "cond0"  #WT                                     
-cond1$stim <- "cond1"  #Gnpmb KO                               
-cond2$stim <- "cond2"  #Gnpmn KO                             
-# what is this for again?? bilge knows 
-
-# View(cond0@meta.data)
-# View(cond1@meta.data)
-# View(cond2@meta.data)
-
-# calculate mitochondrial and ribsosmmal RNA percentage for each condition
-cond0[["percent.mt"]] <- PercentageFeatureSet(cond0, pattern = "^mt-")
-cond0[["percent.rb"]] <- PercentageFeatureSet(cond0, pattern = "^Rp[sl]")
-cond1[["percent.mt"]] <- PercentageFeatureSet(cond1, pattern = "^mt-")
-cond1[["percent.rb"]] <- PercentageFeatureSet(cond1, pattern = "^Rp[sl]")
-cond2[["percent.mt"]] <- PercentageFeatureSet(cond2, pattern = "^mt-")
-cond2[["percent.rb"]] <- PercentageFeatureSet(cond2, pattern = "^Rp[sl]")
+if (FALSE){
+  cond0.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
+  cond1.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
+  cond2.data <- Read10X_h5(object = , use.names = TRUE, unique.features = TRUE)
+  
+  # set up Seurat objects. The object serves as a container that contains both data (like the count matrix) and analysis (like PCA, or clustering results) for a single-cell dataset
+  # the count matrix is stored in pbmc[["RNA"]]@counts.
+  cond0 <- CreateSeuratObject(counts = cond0.data, project = "condition0", min.cells = 3, min.features = 200) # you could rename project to WT    
+  cond1 <- CreateSeuratObject(counts = cond1.data, project = "condition1", min.cells = 3, min.features = 200) # you could rename project to GpnmbKO_1  
+  cond2 <- CreateSeuratObject(counts = cond2.data, project = "condition2", min.cells = 3, min.features = 200) # you could rename project to GpnmbKO_2 
+  
+  cond0$stim <- "cond0"  #WT                                     
+  cond1$stim <- "cond1"  #Gnpmb KO                               
+  cond2$stim <- "cond2"  #Gnpmn KO                             
+  # what is this for again?? bilge knows 
+  
+  # View(cond0@meta.data)
+  # View(cond1@meta.data)
+  # View(cond2@meta.data)
+  
+  # calculate mitochondrial and ribsosmmal RNA percentage for each condition
+  cond0[["percent.mt"]] <- PercentageFeatureSet(cond0, pattern = "^mt-")
+  cond0[["percent.rb"]] <- PercentageFeatureSet(cond0, pattern = "^Rp[sl]")
+  cond1[["percent.mt"]] <- PercentageFeatureSet(cond1, pattern = "^mt-")
+  cond1[["percent.rb"]] <- PercentageFeatureSet(cond1, pattern = "^Rp[sl]")
+  cond2[["percent.mt"]] <- PercentageFeatureSet(cond2, pattern = "^mt-")
+  cond2[["percent.rb"]] <- PercentageFeatureSet(cond2, pattern = "^Rp[sl]")
 
 
 ############################################# --- QC and Filtering --- ##################################################### 
@@ -77,10 +96,17 @@ cond.list <- lapply(X = cond.list, FUN = function(x) {
   x <- NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 10000)
   x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000) 
 })
+}
 
 # Perform Integration: select integration features, find anchor genes, integrate
-features_cond.list <- SelectIntegrationFeatures(object.list = cond.list)
-anchors_cond.list  <- FindIntegrationAnchors(object.list = cond.list, anchor.features = features_cond.list)
+seurat_integrated <- seurat_list %>% SelectIntegrationFeatures() %>% 
+  {FindIntegrationAnchors(object.list = seurat_list, anchor.features = .)} %>% 
+  IntegrateData()
+
+
+
+features_cond.list <- SelectIntegrationFeatures(object.list = seurat_list)
+anchors_cond.list  <- FindIntegrationAnchors(object.list = seurat_list, anchor.features = features_cond.list)
 mg.combined        <- IntegrateData(anchorset = anchors_cond.list) 
 
 #  warining message: unique cell names
@@ -320,6 +346,46 @@ VlnPlot_HFV2_ <- VlnPlot(mg.combined, features = top15_VarFeat_subset2_3)
 VlnPlot_HFV3_ <- VlnPlot(mg.combined, features = top15_VarFeat_subset3_3) 
 VlnPlot_HFV4_ <- VlnPlot(mg.combined, features = top15_VarFeat_subset4_3) 
 VlnPlot_HFV5_ <- VlnPlot(mg.combined, features = top15_VarFeat_subset5_3)
+
+
+# mean logcounts by cluster:
+pb <- aggregateData(sce, "logcounts", by=c("cluster"), fun="mean")
+
+assayNames(pb) <- "logcounts"
+rowData(pb)$marker4 <- NA
+rowData(pb)[unlist(km),"marker4"] <- rep(names(km),lengths(km))
+sechm::sechm(pb, unlist(km), assayName = "logcounts", gaps_row = "marker4", show_colnames = TRUE, do.scale = TRUE, breaks=1, row_title_rot=0)
+
+# build a heatmap of the mean logcounts of the known markers:
+h1 <- pheatmap(assay(pb)[unlist(km),], annotation_row=data.frame(row.names=unlist(km), type=rep(names(km), lengths(km))), split=rep(names(km), lengths(km)), cluster_rows=FALSE, scale="row")
+
+# heatmap for the de-novo markers:
+h2 <- pheatmap(assay(pb)[markers,], scale="row")
+
+# we will assign clusters to the cell type whose markers are the most expressed
+# we get rid of the unspecific neuronal markers:
+km <- km[names(km)!="neuronal"]
+# we extract the pseudo-bulk counts of the markers for each cluster
+mat <- assay(pb)[unlist(km),]
+# we aggregate across markers of the same type
+mat <- aggregate(t(scale(t(mat))), by=list(type=rep(names(km), lengths(km))), FUN=sum)
+# for each column (cluster), we select the row (cell type) which has the maximum aggregated value
+cl2 <- mat[,1][apply(mat[,-1], 2, FUN=which.max)]
+# we convert the cells' cluster labels to cell type labels:
+sce$cluster2 <- cl2[sce$cluster]
+
+# we aggregate again to pseudo-bulk using the new clusters
+pb <- aggregateData(sce, "logcounts", by=c("cluster2"), fun="mean")
+# we plot again the expression of the markers as a sanity check
+h1 <- pheatmap(assay(pb)[unlist(km),], annotation_row=data.frame(row.names=unlist(km), type=rep(names(km), lengths(km))), split=rep(names(km), lengths(km)), cluster_rows=FALSE, scale="row")
+
+# we aggregate by cluster x sample to perform pseudo-bulk differential state analysis
+sce <- muscat::prepSCE(sce, kid="cluster2")
+pb <- aggregateData(sce)
+assays(pb)
+
+# top genes in a given cell type
+pbHeatmap(sce, res, k="astrocytes")
 
 
 ######################## END ############################
