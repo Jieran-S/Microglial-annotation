@@ -30,3 +30,6 @@ For annotating scRNA-seq data for microglial cells
 5. Label and visualization again
 
 6. Subsequent visulization of barplot (cluster percentage), vlnplot (expression profile), and ridgeplot (similar comparision data)
+
+![image](https://user-images.githubusercontent.com/91852421/215492226-2d0a6f63-bf0c-4420-b0d7-bf9a457cb2fc.png)
+Visualization of example datasets
