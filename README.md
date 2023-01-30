@@ -13,16 +13,20 @@ For annotating scRNA-seq data for microglial cells
 
 4. Clustering and visualization 
 
--------- Annotation --------
+5. Annotation and visualization
 
-5. Import all markers and plot the heatmap for overlapping heatmap population distribution (High resolution)
+## Annotation breakdown
 
-6. Pseudo-bulk analysis: mean log expression data for each cluster -> Heatmap again (low resolution)
+1. Import all markers and plot the heatmap for overlapping heatmap population distribution (High resolution)
 
-7. Selecting labels for each cluster based on the most expressed gene and their corresponding cell types
+2. Pseudo-bulk analysis: mean log expression data for each cluster -> Heatmap again (low resolution)
+
+3. Selecting labels for each cluster based on the most expressed gene and their corresponding cell types
+
+4. Try hirearchical classification on labelling (Heatmap)
 
 > Discuss: is that a reliable way for labeling? Should we tune the clustering resolution to avoid inaccurate labelling?
 
-8. Label and visualization again
+5. Label and visualization again
 
-9. Subsequent visulization of barplot (cluster percentage), vlnplot (expression profile), and ridgeplot (similar comparision data)
+6. Subsequent visulization of barplot (cluster percentage), vlnplot (expression profile), and ridgeplot (similar comparision data)
