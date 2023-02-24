@@ -31,6 +31,7 @@ library(patchwork)
 library(gridExtra)
 })
 
+# set up the working directory
 data_path <- "/mnt/plger/jiesun/TFCrossFactor/MGCluster/Data"
 working_path <- "/mnt/plger/jiesun/TFCrossFactor/MGCluster" 
 setwd(working_path)
