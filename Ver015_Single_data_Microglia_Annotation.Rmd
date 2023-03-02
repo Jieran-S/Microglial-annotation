@@ -1,0 +1,234 @@
+---
+title: "Microglia_Annotation"
+author: "Jieran Sun"
+date: '2023-01-14'
+output: html_document
+---
+# Preamble
+
+## Dependencies
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+# data manipulation
+library(hdf5r) 
+library(Seurat)
+library(readxl)
+library(scDblFinder)
+library(data.table)
+# pipelining
+library(tidyverse) 
+library(dplyr)
+# Processing
+library(harmony)
+# For plotting
+library(ggplot2)
+library(RColorBrewer)
+library(ggsci)
+library(wesanderson)
+library(patchwork)
+library(gridExtra)
+})
+
+data_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Data/"
+working_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Microglial-annotation" 
+setwd(working_path)
+```
+
+## Import and QC
+
+```{r Import data, QC and Normalization}
+
+seurat_combi <- Read10X_h5(file.path(data_path, "filtered_feature_bc_matrix.h5")) %>%
+  CreateSeuratObject(project = "filtered", min.cells = 3, min.features = 200) 
+
+seurat_combi[["percent.mt"]] <- PercentageFeatureSet(seurat_combi, pattern = "^mt-")
+seurat_combi[["percent.rb"]] <- PercentageFeatureSet(seurat_combi, pattern = "^Rp[sl]")
+seurat_combi %>% 
+    subset( subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 15 & percent.rb < 25 ) %>%
+    NormalizeData(normalization.method = "LogNormalize", scale.factor = 10000) %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) 
+
+# Should also remove the doublet cells
+```
+
+## Integration
+
+
+Plot Vplot for QC visualization
+```{r}
+VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+        group.by = "orig.ident", cols = pal_npg("nrc")(3),
+        ncol = 3, pt.size = 0) + xlab("conditions") 
+```
+
+```{r Processing and dimred}
+seurat_combi <- seurat_combi %>%
+    FindVariableFeatures(nfeatures = 2000) %>%
+    ScaleData() %>%
+    RunPCA(npcs = 50)
+
+# Select essential PCs for clustering
+pct <- seurat_combi[["pca"]]@stdev / sum(seurat_combi[["pca"]]@stdev) * 100
+choice1 <- which(cumsum(pct) > 80 & pct < 5)[1]
+choice2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1 & cumsum(pct) > 60 ), decreasing = T)[1] + 1
+pcs <- min(choice1, choice2, 40)
+
+ElbowPlot(seurat_combi, ndims= 50) + ylab("variance explained (%)") +
+                geom_point(x = pcs, y = seurat_combi[["pca"]]@stdev[pcs] , colour = "red") +
+                geom_label(
+                  label=sprintf("PC selected: %1.0f",pcs), 
+                  x=pcs,
+                  y=seurat_combi[["pca"]]@stdev[pcs] + 3,
+                  label.padding = unit(0.55, "lines"), # Rectangle size around label
+                  label.size = 0.35,
+                  color = "black",
+                  fill="#69b3a2")
+```
+
+```{r integration and Clustering}
+# Harmony integration
+seurat_combi <- RunHarmony(seurat_combi, dims.use = 1:pcs, max.iter.harmony = 50) %>% 
+    RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, reduction.name = 'har_umap',reduction.key="UMAPHAR_") %>% 
+    FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs, graph.name = 'har_snn') %>% FindClusters(resolution = 1)
+
+seurat_combi$seurat_clusters <- paste0("mg", seurat_combi$seurat_clusters)
+    
+#visualization of the results
+plot1_Har <- UMAPPlot(seurat_combi, group.by="orig.ident", pt.size = 0.5)
+plot2_Har <- UMAPPlot(seurat_combi, label = T, pt.size = 0.5)
+
+Plot1 <- DimPlot(seurat_combi, group.by = "seurat_clusters", label = T, label.color = "black", pt.size = 0.3, cols = pal_npg("nrc")(10))  + 
+  plot_annotation(title="Clusters") + NoAxes()
+Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal_npg("nrc")(10)) + 
+  plot_annotation(title="Conditions") + NoAxes()
+Plot1 + Plot2
+```
+Workflow:
+1. Import all marker genes for microglial cells 
+2. Find the overlapping markers with the current altas genes 
+3. Find the expression matrix information (heatmap)
+3. Find the cell type proportion inside each cell type/cluster? -Bar plot for the expression information
+4. Identify the cell types based on the expression information?
+5. For each cluster, find the most expressed genes and plot their VlnPlot (make a function to plot the Vlnplot)
+6. MDS plot for each cluster information? 
+
+```{r annotation attempts}
+# Plot abundance of cells in different conditions
+ca <- table(cluster=seurat_combi$seurat_clusters, sample=seurat_combi$orig.ident)
+ggplot(as.data.frame(ca), aes(sample, cluster, fill=Freq)) + 
+  geom_tile() + scale_fill_gradientn(colors = wes_palette("IsleofDogs2", 10, type = "continuous")) +
+  geom_text(aes(label=Freq), color = "white") + coord_fixed(ratio = 0.25) +
+  guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18)) 
+
+# Bar plot about the percentage in each cluster given the condition
+```
+
+Deliverables:
+* Pipeline for the code annotation
+* UMAP visualization (t-SNE) 
+* Heatmap (for target)
+* violn plot with subpopulation and marker genes 
+* feature-plot (for target genes) 
+* Gene-list for the potential 
+* cell frequency analysis and cell types (bar plots)
+
+```{r }
+# Import list of marker genes 
+marker_list <- read_excel(file.path(working_path,"Marker_list_BU.xlsx")) %>% {.[c(4:13)]}
+meta_data <- unlist(tstrsplit(marker_list$Meta_data, ":", fixed = T, keep = 2))
+names(meta_data) <- unlist(tstrsplit(marker_list$Meta_data, ":", fixed = T, keep = 1))
+
+# Filter and leave only those marker genes in the clusters
+exist_list <- lapply(marker_list, function(x){
+  x <- x[!is.na(x)] 
+  x <- x[which(x %in% row.names(seurat_combi))] })
+
+# Overview of the feature genes distribution in the cell population
+DoHeatmap(seurat_combi, features = unlist(exist_list), group.colors = pal_npg("nrc")(8))
+```
+
+```{r}
+# Find differential marker genes in across different clusters 
+seurat_markers <- FindAllMarkers(seurat_combi, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25, test.use = "bimod", verbose = FALSE) %>%
+    group_by(cluster) %>%
+    subset(gene %in% unlist(exist_list))
+  
+DoHeatmap(seurat_combi, features = seurat_markers$gene, group.colors = pal_npg("nrc")(8))
+```
+Pseudo bulk analysis
+```{r pseudo bulk analysis}
+library(sechm)
+library(scater)
+library(muscat)
+
+seurat_sce <- as.SingleCellExperiment(seurat_combi)
+# Summarize each cluster by its average expression 
+# TODO: Implement this in seurat package using df expression
+# TODO: How to access and analyze sce object information
+
+pb <- aggregateData(seurat_sce, "logcounts", by=c("ident"), fun="mean")
+assayNames(pb) <- "logcounts"
+rowData(pb)$marker4 <- NA
+rowData(pb)[unlist(exist_list),"marker4"] <- rep(names(exist_list),lengths(exist_list))
+sechm::sechm(pb, unlist(exist_list), assayName = "logcounts", gaps_row = "marker4", show_colnames = TRUE, do.scale = TRUE, breaks=1, row_title_rot=0)
+# Taking the mean expression profile form each cluster
+
+# plotPCA(seurat_sce, colour_by = "ident")
+```
+
+
+```{r}
+# Hierarchical calssification based on the marker gene expression value
+library(pheatmap)
+h1 <- pheatmap(assay(pb)[unlist(exist_list),], annotation_row=data.frame(row.names=unlist(exist_list), type=rep(names(exist_list), lengths(exist_list))), split=rep(names(exist_list), lengths(exist_list)), cluster_rows=FALSE, scale="row")
+
+
+pheatmap(assay(pb)[unlist(exist_list),], scale="row")
+```
+
+```{r}
+km <- exist_list
+# Assign cluster based on the most expressed gene
+mat <- assay(pb)[unlist(km),]
+# we aggregate across markers of the same type
+mat <- aggregate(t(scale(t(mat))), by=list(type=rep(names(km), lengths(km))), FUN=sum)
+# for each column (cluster), we select the row (cell type) which has the maximum aggregated value
+cl2 <- mat[,1][apply(mat[,-1], 2, FUN=which.max)]
+# we convert the cells' cluster labels to cell type labels:
+seurat_sce$cluster2 <- cl2[seurat_sce$ident]
+
+# we aggregate again to pseudo-bulk using the new clusters
+pb <- aggregateData(seurat_sce, "logcounts", by=c("cluster2"), fun="mean")
+# we plot again the expression of the markers as a sanity check
+h1 <- pheatmap(assay(pb)[unlist(km),], annotation_row=data.frame(row.names=unlist(km), type=rep(names(km), lengths(km))), split=rep(names(km), lengths(km)), cluster_rows=FALSE, scale="row")
+```
+```{r}
+seurat_combi$cluster_id <- seurat_sce$cluster2
+plot_labelled <- DimPlot(seurat_combi, group.by = "cluster_id",pt.size = 0.3, cols = pal_npg("nrc")(10), label = TRUE) + 
+  plot_annotation(title="Cluster labels vs cluster no.") + NoAxes()
+
+plot_labelled + Plot1
+```
+
+```{r}
+# In each cluster, find intra-cluster most differentially expressed marker genes
+
+
+# Vln plot for those genes within the cluster
+
+
+# Barplot for the cell type distribution
+
+
+# Heatmap? Can you still find the subcluster resolution?
+
+```
+
+# Epilog
+
+## Session info
+
+```{r session-info}
+sessionInfo()
+```
