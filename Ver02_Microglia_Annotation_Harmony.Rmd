@@ -31,8 +31,8 @@ library(patchwork)
 library(gridExtra)
 })
 
-data_path <- "/mnt/plger/jiesun/TFCrossFactor/MGCluster/Data"
-working_path <- "/mnt/plger/jiesun/TFCrossFactor/MGCluster/Microglial-annotation" 
+data_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Data"
+working_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Microglial-annotation"
 setwd(working_path)
 ```
 
@@ -67,15 +67,25 @@ rm(seurat_list)
 
 Plot Vplot for QC visualization
 ```{r}
-(VP_Overall <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
-        group.by = "orig.ident", cols = pal_npg("nrc")(3),
-        ncol = 3, pt.size = 0) + xlab("conditions") )
+(VP_Overall <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        group.by = "orig.ident", cols = pal_npg("nrc")(9),
+        ncol = 4, pt.size = 0) + xlab("conditions") )
 ```
 
-```{r Processing and dimred}
+```{r QC}
+# QC processing (remove ribosome and mitochrondial RNA)
+seurat_combi <- subset(seruat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 7 & percent.rb < 10 ) 
+
+# Recheck the violin plot after QC
+(VP_afterQC <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        group.by = "orig.ident", cols = pal_npg("nrc")(9),
+        ncol = 4, pt.size = 0) + xlab("conditions") )
+```
+
+```{r Dimred and PC selection}
 seurat_combi <- seurat_combi %>%  
     NormalizeData() %>%
-    FindVariableFeatures(nfeatures = 3000) %>%
+    FindVariableFeatures(nfeatures = 3000)  %>%
     ScaleData() %>%
     RunPCA(npcs = 50)
 
@@ -146,7 +156,7 @@ Deliverables:
 
 Here we plot the heatmap for all the marker genes found in the dataset, regardless of their expression level.
 ```{r Loading the marker gene lists}
-old_way_loading = FALSE
+old_way_loading = TRUE
 
 if (old_way_loading){
   
@@ -160,12 +170,13 @@ if (old_way_loading){
   exist_list <- lapply(marker_list, function(x){
     x <- x[!is.na(x)]
     x <- x[x %in% row.names(seurat_combi)]})
-  exist_list$Meta_data <- meta_data
   
 } else{
   exist_list <- readRDS(file.path(working_path, "Results/new_exist_list.rds"))
   meta_data <- exist_list$Meta_data
-  exist_list <- exist_list[-which(names(exist_list) =="Meta_data")]
+  exist_list <- lapply(exist_list, function(x){
+    x <- x[!is.na(x)]
+    x <- x[x %in% row.names(seurat_combi)]})
 }
 ```
 
@@ -208,51 +219,71 @@ assayNames(pb) <- "logcounts"
 rowData(pb)$marker4 <- NA
 rowData(pb)[unlist(exist_list),"marker4"] <- rep(names(exist_list),lengths(exist_list))
 
+pb_cluster <- pb
 
-(heatmap_1 <- sechm::sechm(pb, unlist(exist_list), 
+(heatmap_1 <- sechm::sechm(pb_cluster, unlist(exist_list), 
              assayName = "logcounts", gaps_row = "marker4", 
              show_colnames = TRUE, do.scale = TRUE, 
              breaks=1, row_title_rot=0, 
              hmcols = viridis_pal(option = "C")(100)))
 ```
+
+
+
 ```{r show heatmap row names}
-(heatmap_showrowname <- sechm::sechm(pb, unlist(exist_list$Unique_IRM), 
+saving = FALSE
+(heatmap_showrowname_1 <- sechm::sechm(pb_cluster, unlist(exist_list$Unique_IRM), 
              assayName = "logcounts", gaps_row = "marker4", 
              show_colnames = TRUE, do.scale = TRUE, 
              breaks=1, row_title_rot=0, show_rownames = TRUE, 
              hmcols = viridis_pal(option = "C")(100)))
 
-(heatmap_showrowname <- sechm::sechm(pb, unlist(c(exist_list$Unique_DAM, exist_list$Unique_ATM)), 
+(heatmap_showrowname_2 <- sechm::sechm(pb_cluster, unlist(c(exist_list$Unique_DAM, exist_list$Unique_ATM)), 
              assayName = "logcounts", gaps_row = "marker4", 
              show_colnames = TRUE, do.scale = TRUE, 
              breaks=1, row_title_rot=0, show_rownames = TRUE, 
              hmcols = viridis_pal(option = "C")(100)))
+
+if (saving == TRUE){
+  pdf(file.path(working_path, "Visualization/DAM_IRM_ITM_name.pdf"), width = 15, height = 15)
+  print(heatmap_showrowname_1)
+  print(heatmap_showrowname_2)
+  dev.off()
+}
 ```
 
+
+
 ```{r Find out Cluster 10 genes}
-top_number <- 15
-top_matrix <- data.table(assay(pb)[unlist(exist_list),], keep.rownames = TRUE)
+top_number <- 20
+top_matrix <- data.table(assay(pb_cluster)[unlist(exist_list),], keep.rownames = TRUE)
 
 top_matrix <- top_matrix[, lapply(.SD, function(x){
                             Best_n <- sort(x, index.return=TRUE, decreasing=TRUE)
                             rn[Best_n$ix[1:top_number]]
                           }), .SDcols = colnames(top_matrix)[-1]]
 
-write.csv(top_matrix, sprintf("TOP_%s_gene_per_matrix.csv", top_number))
-
+write.csv(top_matrix, file.path(working_path,sprintf("Results/TOP_%s_gene_per_matrix.csv", top_number)))
 ```
 
 ```{r making corrected marker gene list}
+
 Create_new_list = FALSE
+
+# This function is used to create adjusted marker gene list in case the marker gene-cell type 
+# assignment is unreasonable in the first place
 
 if (Create_new_list){
   # Assigning a new variable for the new list
   new_exist_list <- exist_list
   
+  # Visualization of the gene expression distribution on the interested clusters
   hist(heatmap_1@matrix[,"9"], 50)
+  # Find the interested gene list (highly expressed genes in these clusters)
   interested_gene <- list("10" = heatmap_1@row_names_param$labels[which(heatmap_1@matrix[,"10"] > 2)],
                           "9" = heatmap_1@row_names_param$labels[which(heatmap_1@matrix[,"9"] > 2)])
   
+  # re_classify those genes into designated cell types
   for (gene in interested_gene$`10`){
     if (gene %in% new_exist_list$Unique_IRM){
       # print(which(gene == new_exist_list$Unique_IRM))
@@ -279,7 +310,7 @@ names(mycolors) <- names(exist_list)
 mycolors <- list(type = mycolors)
 
 # Hierarchical calssification based on the marker gene expression value
-(heatmap_2 <- pheatmap(assay(pb)[unlist(exist_list),], 
+(heatmap_2 <- pheatmap(assay(pb_cluster)[unlist(exist_list),], 
                color = viridis_pal(option = "C")(100), 
                annotation_row=data.frame(row.names=unlist(exist_list), 
                                          type=rep(names(exist_list), lengths(exist_list))),
@@ -293,7 +324,7 @@ mycolors <- list(type = mycolors)
 
 Also we do a clustering for the gene for some comparison and sanity check
 ```{r}
-(heatmap_3 <- pheatmap(assay(pb)[unlist(exist_list),], color = viridis_pal(option = "C")(100), scale="row"))
+(heatmap_3 <- pheatmap(assay(pb_cluster)[unlist(exist_list),], color = viridis_pal(option = "C")(100), scale="row"))
 ```
 
 
@@ -323,6 +354,8 @@ seurat_sce$cluster2 <- cl2[seurat_sce$ident]
 # we aggregate again to pseudo-bulk using the new clusters
 pb <- aggregateData(seurat_sce, "logcounts", by=c("cluster2"), fun="mean")
 # we plot again the expression of the markers as a sanity check
+assayNames(pb) <- "logcounts"
+
 heatmap_4 <- pheatmap(assay(pb)[unlist(km),], 
                color = viridis_pal(option = "C")(100),
                annotation_row=data.frame(row.names=unlist(km), 
@@ -336,56 +369,18 @@ heatmap_4 <- pheatmap(assay(pb)[unlist(km),],
 
 ```{r print cell type labels}
 seurat_combi$cluster_label <- seurat_sce$cluster2
-plot_labelled <- DimPlot(seurat_combi, group.by = "cluster_label",pt.size = 0.3, cols = pal_npg()(10)[-1], label = TRUE) + 
+plot_labelled <- DimPlot(seurat_combi, group.by = "cluster_label",pt.size = 0.3, cols = pal_npg()(10)[-c(7)], label = TRUE) + 
   plot_annotation(title="Cluster labels vs cluster no.") + NoAxes()
 
 (plot_UMAPlabel <- plot_labelled + Plot1)
 ```
 
 ```{r save data for future use}
-saving = FALSE
+saving = TRUE
 if (saving){
-  saveRDS(seurat_combi, "Annotated_seurat.rds")
+  saveRDS(seurat_combi, "Results/Annotated_seurat_harmony_qc.rds")
 }
 ```
-
-## Gene specific plotting
-
-For differentially expressed genes, find out their expression profile across different clusters
-
-```{r plot gene expression analysis}
-flist_1<-c("Cd63","Ctsb","Bax","Cd9","Cd68")
-flist_2<-c("P2ry12","P2ry13","Hexb","Selplg","Tmem119")
-flist_3<-c("Nfkbia","Egr1","Zfp36","Nfkbiz","Ier2","Atf3","Ier3","Apoe", "Trem2", "Tyrobp")
-flist_4<-c("Cd74","H2-Eb1","H2-aa","Cxcl2","Pf4","H2-Ab1")
-flist_5<-c("Top2a","Ccl2","Cxcl10","Hmgb2","Mki67")
-flist_6<-c("Cxcl3","Ifitm3","Slfn5","Ccl12","Ifi204","Stat1","Ifit3","Ifit2","Ccl4","Il1b","Rtp4","Ifitmp","Cst7","Ccl3")
-flist_7<-c("H3f3b","Hsp90aa1","Hsp90ab1","Hsp90b1","Hspa5","Hspa8","Jun","Junb","Malat1","Rps16","Zfp36l1","Fos","Egr1")
-flist_8<-c("Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Glb1")
-heatmapmarkersFinal<-c("P2ry12","Cx3cr1","P2ry13","Tmem119","Csf1r","Hexb","Mrc1","Ms4a7","Pf4","Cd9","Trem2","Spp1","Itgax","Cd83","Ifit1","Ifit2","Isg15","Ifitm3","Ccl3","Ccl4","Cst7","Il1b","Rtp4","Cd68","Ctsd","Lamp1","Usp18","Cdk1","Mki67","Birc5","Cd36","Cd74","H2-Aa","Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Il1b","Glb1","Serpine1","Il1rl1","HOXB8")
-
-featured_gene <- unlist(exist_list)[1]
-feature_list <- list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6, flist_7, flist_8, heatmapmarkersFinal)
-
-
-# Vlnplot
-VP_gene <- VlnPlot(seurat_combi, features = featured_gene, 
-                   group.by = "cluster_label", cols = pal_simpsons()(16),pt.size = 0) + 
-            xlab("cell type") 
-
-
-# ridge plot
-RP_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "cluster_label", 
-                     cols = pal_simpsons()(16), sort = FALSE, stack = FALSE)  + 
-            xlab("Expression value")
-
-(Plot_gene <- VP_gene + RP_gene)
-
-# Dimplot for expression level analysis
-color.features <- viridis_pal(option = "C", direction = 1 )(100)
-(DP_gene <- FeaturePlot(seurat_combi, features=unlist(exist_list)[1:2], ncol=2, pt.size = 0.5, cols = color.features) & NoAxes())
-```
-
 
 ## Cell type condition composition
 
@@ -406,29 +401,129 @@ ca <- table(cluster=seurat_combi$cluster_label, sample=seurat_combi$orig.ident) 
 
 
 ```{r saving a pdf}
-pdf("Results/Annotation_Harmony.pdf", width = 15, height = 9)
-print(VP_Overall)
-print(plot_UMAP)
-print(plot_cluster_comp)
-# print(map_overall)
-# print(heatmap_feature)
-plot.new()
-heatmap_1
-plot.new()
-heatmap_2
-plot.new()
-heatmap_3
-plot.new()
-heatmap_4
-
-print(plot_UMAPlabel)
-print(Plot_Celltype_Comp)
-print(VP_gene)
-print(RP_gene)
-print(DP_gene)
-dev.off()
+if (saving = TRUE){
+  
+  pdf("Visualization/Annotation_Harmony_qc.pdf", width = 15, height = 9)
+  print(VP_Overall)
+  print(VP_afterQC)
+  print(plot_UMAP)
+  print(plot_cluster_comp)
+  # print(map_overall)
+  # print(heatmap_feature) 
+  heatmap_1
+  plot.new()
+  heatmap_2
+  plot.new()
+  heatmap_3
+  plot.new()
+  heatmap_4
+  
+  print(plot_UMAPlabel)
+  print(Plot_Celltype_Comp)
+  # print(VP_gene)
+  # print(RP_gene)
+  # print(DP_gene)
+  dev.off()
+}
 
 ```
+
+## Gene specific plotting
+
+For differentially expressed genes, find out their expression profile across different clusters
+
+```{r plot gene expression analysis}
+flist_1<-c("Cd63","Ctsb","Bax","Cd9","Cd68")
+flist_2<-c("P2ry12","P2ry13","Hexb","Selplg","Tmem119")
+flist_3<-c("Nfkbia","Egr1","Zfp36","Nfkbiz","Ier2","Atf3","Ier3","Apoe", "Trem2", "Tyrobp")
+flist_4<-c("Cd74","H2-Eb1","H2-aa","Cxcl2","Pf4","H2-Ab1")
+flist_5<-c("Top2a","Ccl2","Cxcl10","Hmgb2","Mki67")
+flist_6<-c("Cxcl3","Ifitm3","Slfn5","Ccl12","Ifi204","Stat1","Ifit3","Ifit2","Ccl4","Il1b","Rtp4","Ifitmp","Cst7","Ccl3")
+flist_7<-c("H3f3b","Hsp90aa1","Hsp90ab1","Hsp90b1","Hspa5","Hspa8","Jun","Junb","Malat1","Rps16","Zfp36l1","Fos","Egr1")
+flist_8<-c("Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Glb1")
+
+heatmapmarkersFinal<-c("P2ry12","Cx3cr1","P2ry13","Tmem119","Csf1r","Hexb","Mrc1","Ms4a7","Pf4","Cd9","Trem2","Spp1","Itgax","Cd83","Ifit1","Ifit2","Isg15","Ifitm3","Ccl3","Ccl4","Cst7","Il1b","Rtp4","Cd68","Ctsd","Lamp1","Usp18","Cdk1","Mki67","Birc5","Cd36","Cd74","H2-Aa","Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Il1b","Glb1","Serpine1","Il1rl1") #HOXB8 not in the gene list
+
+featured_gene <- unlist(exist_list)[1]
+feature_list <- list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6, flist_7, flist_8)
+```
+
+
+```{r plot required heatmap}
+(hmap_marker_cluster <- sechm::sechm(pb_cluster, heatmapmarkersFinal, 
+             assayName = "logcounts", cluster_cols = TRUE,
+             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+             breaks=1, row_title_rot=0, show_rownames = TRUE,
+             hmcols = viridis_pal(option = "C")(50)))
+
+(hmap_marker_celltype <- sechm::sechm(pb, heatmapmarkersFinal, 
+             assayName = "logcounts", cluster_cols = TRUE,
+             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+             breaks=1, row_title_rot=0, show_rownames = TRUE,
+             hmcols = viridis_pal(option = "C")(50)))
+
+if (saving == TRUE) {
+  pdf(file.path(working_path, "Visualization/Heatmap_Markers.pdf"), width = 10, height = 10)
+  print(hmap_marker_cluster)
+  print(hmap_marker_celltype)
+  dev.off()
+}
+```
+
+
+```{r plot required vln plot & ridge plot}
+plotMarkerList <- function(feature_list, group_var, plot_type = c("Vln", "Rdg"), saving = FALSE){
+  Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
+    feature <- feature_list[[ind]]
+    if (plot_type == "Vln") {
+      Plot <- VlnPlot(seurat_combi, features = feature, 
+                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16),pt.size = 0) + 
+        plot_annotation(title = sprintf("list_%s", ind))
+    } else if (plot_type == "Rdg") {
+      Plot <- RidgePlot(seurat_combi, features = feature, 
+                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16)) + 
+        plot_annotation(title = sprintf("list_%s", ind))
+    }
+      return(Plot)
+  })
+  
+  if (saving == TRUE) {
+    label <- strsplit(group_var, c("_"))[[1]][2]
+    pdf(file.path(working_path, sprintf("Visualization/Markers_%s_%s.pdf", plot_type, label)), 
+        width = 20, height = 20)
+    print(Plot_list)
+    dev.off()
+  }
+  
+  return(Plot_list)
+}
+
+VP_clu_list <- plotMarkerList(feature_list, "seurat_clusters", plot_type = "Vln", saving = saving)
+VP_ano_list <- plotMarkerList(feature_list, "cluster_label", plot_type = "Vln", saving = saving)
+RP_clu_list <- plotMarkerList(feature_list, "seurat_clusters", plot_type = "Rdg", saving = saving)
+RP_ano_list <- plotMarkerList(feature_list, "cluster_label", plot_type = "Rdg", saving = saving)
+```
+
+```{r Vln and ridge plot for one gene}
+# Vlnplot
+VP_gene <- VlnPlot(seurat_combi, features = flist_7, 
+                   group.by = "seurat_clusters", cols = pal_simpsons()(16),pt.size = 0) + 
+            xlab("cell type") 
+
+
+# ridge plot
+RP_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "seurat_clusters", 
+                     cols = pal_simpsons()(16), sort = FALSE, stack = FALSE)  + 
+            xlab("Expression value")
+
+(Plot_gene <- VP_gene + RP_gene)
+
+# Dimplot for expression level analysis
+color.features <- viridis_pal(option = "C", direction = 1 )(100)
+(DP_gene <- FeaturePlot(seurat_combi, features=unlist(exist_list)[1:2], ncol=2, pt.size = 0.5, cols = color.features) & NoAxes())
+```
+
+
 
 # Epilog
 

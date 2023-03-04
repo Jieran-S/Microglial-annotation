@@ -13,6 +13,7 @@
 
 # Output files from R CMD build
 /*.tar.gz
+/*.rds
 
 
 # Output files from R CMD check
