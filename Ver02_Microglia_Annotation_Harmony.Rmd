@@ -151,7 +151,7 @@ old_way_loading = FALSE
 if (old_way_loading){
   
   # Import list of marker genes 
-  marker_list <- read_excel(file.path(working_path,"Microglial-annotation/Marker_list_BU.xlsx")) %>% {.[c(4:13)]}
+  marker_list <- read_excel(file.path(working_path,"Marker_list_BU.xlsx")) %>% {.[c(4:13)]}
   meta_data <- unlist(tstrsplit(marker_list$Meta_data, ":", fixed = T, keep = 2))
   names(meta_data) <- unlist(tstrsplit(marker_list$Meta_data, ":", fixed = T, keep = 1))
   meta_data <- meta_data[!is.na(meta_data)]
@@ -160,8 +160,12 @@ if (old_way_loading){
   exist_list <- lapply(marker_list, function(x){
     x <- x[!is.na(x)]
     x <- x[x %in% row.names(seurat_combi)]})
+  exist_list$Meta_data <- meta_data
+  
 } else{
   exist_list <- readRDS(file.path(working_path, "Results/new_exist_list.rds"))
+  meta_data <- exist_list$Meta_data
+  exist_list <- exist_list[-which(names(exist_list) =="Meta_data")]
 }
 ```
 
@@ -209,6 +213,19 @@ rowData(pb)[unlist(exist_list),"marker4"] <- rep(names(exist_list),lengths(exist
              assayName = "logcounts", gaps_row = "marker4", 
              show_colnames = TRUE, do.scale = TRUE, 
              breaks=1, row_title_rot=0, 
+             hmcols = viridis_pal(option = "C")(100)))
+```
+```{r show heatmap row names}
+(heatmap_showrowname <- sechm::sechm(pb, unlist(exist_list$Unique_IRM), 
+             assayName = "logcounts", gaps_row = "marker4", 
+             show_colnames = TRUE, do.scale = TRUE, 
+             breaks=1, row_title_rot=0, show_rownames = TRUE, 
+             hmcols = viridis_pal(option = "C")(100)))
+
+(heatmap_showrowname <- sechm::sechm(pb, unlist(c(exist_list$Unique_DAM, exist_list$Unique_ATM)), 
+             assayName = "logcounts", gaps_row = "marker4", 
+             show_colnames = TRUE, do.scale = TRUE, 
+             breaks=1, row_title_rot=0, show_rownames = TRUE, 
              hmcols = viridis_pal(option = "C")(100)))
 ```
 
@@ -280,9 +297,10 @@ Also we do a clustering for the gene for some comparison and sanity check
 ```
 
 
-```{r}
+```{r label clusters with cell types}
 km <- exist_list
 # paste(shQuote(names(meta_data)), collapse=", ")
+
 meta_data <- append(meta_data, c("cell_cycle", "meta_data"))
 names(meta_data) <- c('Unique_IRM', 'Unique_DAM', 'Unique_ATM', 'WAM', 'CAM', 'IFM', 'PGM', 'HSM', 'Cell_Cycle', 'Meta_data')
 cellname <- c( unlist(meta_data[names(km)]))
@@ -316,7 +334,7 @@ heatmap_4 <- pheatmap(assay(pb)[unlist(km),],
 ```
 
 
-```{r}
+```{r print cell type labels}
 seurat_combi$cluster_label <- seurat_sce$cluster2
 plot_labelled <- DimPlot(seurat_combi, group.by = "cluster_label",pt.size = 0.3, cols = pal_npg()(10)[-1], label = TRUE) + 
   plot_annotation(title="Cluster labels vs cluster no.") + NoAxes()
@@ -336,7 +354,19 @@ if (saving){
 For differentially expressed genes, find out their expression profile across different clusters
 
 ```{r plot gene expression analysis}
+flist_1<-c("Cd63","Ctsb","Bax","Cd9","Cd68")
+flist_2<-c("P2ry12","P2ry13","Hexb","Selplg","Tmem119")
+flist_3<-c("Nfkbia","Egr1","Zfp36","Nfkbiz","Ier2","Atf3","Ier3","Apoe", "Trem2", "Tyrobp")
+flist_4<-c("Cd74","H2-Eb1","H2-aa","Cxcl2","Pf4","H2-Ab1")
+flist_5<-c("Top2a","Ccl2","Cxcl10","Hmgb2","Mki67")
+flist_6<-c("Cxcl3","Ifitm3","Slfn5","Ccl12","Ifi204","Stat1","Ifit3","Ifit2","Ccl4","Il1b","Rtp4","Ifitmp","Cst7","Ccl3")
+flist_7<-c("H3f3b","Hsp90aa1","Hsp90ab1","Hsp90b1","Hspa5","Hspa8","Jun","Junb","Malat1","Rps16","Zfp36l1","Fos","Egr1")
+flist_8<-c("Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Glb1")
+heatmapmarkersFinal<-c("P2ry12","Cx3cr1","P2ry13","Tmem119","Csf1r","Hexb","Mrc1","Ms4a7","Pf4","Cd9","Trem2","Spp1","Itgax","Cd83","Ifit1","Ifit2","Isg15","Ifitm3","Ccl3","Ccl4","Cst7","Il1b","Rtp4","Cd68","Ctsd","Lamp1","Usp18","Cdk1","Mki67","Birc5","Cd36","Cd74","H2-Aa","Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Il1b","Glb1","Serpine1","Il1rl1","HOXB8")
+
 featured_gene <- unlist(exist_list)[1]
+feature_list <- list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6, flist_7, flist_8, heatmapmarkersFinal)
+
 
 # Vlnplot
 VP_gene <- VlnPlot(seurat_combi, features = featured_gene, 
@@ -359,7 +389,7 @@ color.features <- viridis_pal(option = "C", direction = 1 )(100)
 
 ## Cell type condition composition
 
-```{r}
+```{r condition component wrt cell types}
 # Plot abundance of cells in different conditions
 ca <- table(cluster=seurat_combi$cluster_label, sample=seurat_combi$orig.ident) %>% 
   as.data.table() %>% 
