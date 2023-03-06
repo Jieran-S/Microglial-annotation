@@ -34,6 +34,9 @@ library(gridExtra)
 data_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Data"
 working_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Microglial-annotation"
 setwd(working_path)
+
+saving = FALSE
+
 ```
 
 ## Import and QC
@@ -74,7 +77,7 @@ Plot Vplot for QC visualization
 
 ```{r QC}
 # QC processing (remove ribosome and mitochrondial RNA)
-seurat_combi <- subset(seruat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 7 & percent.rb < 10 ) 
+seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 7 & percent.rb < 10 ) 
 
 # Recheck the violin plot after QC
 (VP_afterQC <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
@@ -120,14 +123,23 @@ Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal
   plot_annotation(title="Conditions") + NoAxes()
 (plot_UMAP <- Plot1 + Plot2)
 ```
+
+
 Workflow:
+
 1. Import all marker genes for microglial cells 
+
 2. Find the overlapping markers with the current altas genes 
+
 3. Find the expression matrix information (heatmap)
-3. Find the cell type proportion inside each cell type/cluster? -Bar plot for the expression information
-4. Identify the cell types based on the expression information?
-5. For each cluster, find the most expressed genes and plot their VlnPlot (make a function to plot the Vlnplot)
-6. MDS plot for each cluster information?
+
+4. Find the cell type proportion inside each cell type/cluster? -Bar plot for the expression information
+
+5. Identify the cell types based on the expression information?
+
+6. For each cluster, find the most expressed genes and plot their VlnPlot (make a function to plot the Vlnplot)
+
+7. MDS plot for each cluster information?
 
 
 ```{r annotation attempts}
@@ -144,13 +156,22 @@ ca <- table(cluster=seurat_combi$seurat_clusters, sample=seurat_combi$orig.ident
     guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18))) 
 ```
 
+
+
 Deliverables:
+
 * Pipeline for the code annotation
+
 * UMAP visualization (t-SNE) 
+
 * Heatmap (for target)
+
 * violn plot with subpopulation and marker genes 
+
 * feature-plot (for target genes) 
+
 * Gene-list for the potential 
+
 * cell frequency analysis and cell types (bar plots)
 
 
@@ -230,8 +251,7 @@ pb_cluster <- pb
 
 
 
-```{r show heatmap row names}
-saving = FALSE
+```{r show heatmap rownames of ATM DAM IRM, eval=FALSE}
 (heatmap_showrowname_1 <- sechm::sechm(pb_cluster, unlist(exist_list$Unique_IRM), 
              assayName = "logcounts", gaps_row = "marker4", 
              show_colnames = TRUE, do.scale = TRUE, 
@@ -267,7 +287,6 @@ write.csv(top_matrix, file.path(working_path,sprintf("Results/TOP_%s_gene_per_ma
 ```
 
 ```{r making corrected marker gene list}
-
 Create_new_list = FALSE
 
 # This function is used to create adjusted marker gene list in case the marker gene-cell type 
@@ -303,8 +322,15 @@ if (Create_new_list){
 }
 ```
 
+```{r plot heatmaps for each vectors}
+
+
+
+```
+
+
 The heatmap showing a clustering of the clusters based on the expression profile. 
-```{r}
+```{r hierarchical clustering of cluster heatmap}
 mycolors <- pal_simpsons()(length(exist_list))
 names(mycolors) <- names(exist_list)
 mycolors <- list(type = mycolors)
@@ -323,7 +349,7 @@ mycolors <- list(type = mycolors)
 
 
 Also we do a clustering for the gene for some comparison and sanity check
-```{r}
+```{r hierarchical clustering of gene heatmap}
 (heatmap_3 <- pheatmap(assay(pb_cluster)[unlist(exist_list),], color = viridis_pal(option = "C")(100), scale="row"))
 ```
 
@@ -376,7 +402,6 @@ plot_labelled <- DimPlot(seurat_combi, group.by = "cluster_label",pt.size = 0.3,
 ```
 
 ```{r save data for future use}
-saving = TRUE
 if (saving){
   saveRDS(seurat_combi, "Results/Annotated_seurat_harmony_qc.rds")
 }
@@ -401,7 +426,7 @@ ca <- table(cluster=seurat_combi$cluster_label, sample=seurat_combi$orig.ident) 
 
 
 ```{r saving a pdf}
-if (saving = TRUE){
+if (saving == TRUE){
   
   pdf("Visualization/Annotation_Harmony_qc.pdf", width = 15, height = 9)
   print(VP_Overall)
@@ -444,8 +469,9 @@ flist_8<-c("Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Glb1")
 
 heatmapmarkersFinal<-c("P2ry12","Cx3cr1","P2ry13","Tmem119","Csf1r","Hexb","Mrc1","Ms4a7","Pf4","Cd9","Trem2","Spp1","Itgax","Cd83","Ifit1","Ifit2","Isg15","Ifitm3","Ccl3","Ccl4","Cst7","Il1b","Rtp4","Cd68","Ctsd","Lamp1","Usp18","Cdk1","Mki67","Birc5","Cd36","Cd74","H2-Aa","Cdkn2a","Cdkn1a","Cdkn2d","Casp8","Il1b","Glb1","Serpine1","Il1rl1") #HOXB8 not in the gene list
 
-featured_gene <- unlist(exist_list)[1]
-feature_list <- list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6, flist_7, flist_8)
+feature_list <- lapply(list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6, flist_7, flist_8), 
+                       function(x) {x[x %in% rownames(seurat_combi)]})
+
 ```
 
 
@@ -471,7 +497,7 @@ if (saving == TRUE) {
 ```
 
 
-```{r plot required vln plot & ridge plot}
+```{r plot required vln plot & ridge plot, eval = FALSE}
 plotMarkerList <- function(feature_list, group_var, plot_type = c("Vln", "Rdg"), saving = FALSE){
   Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
     feature <- feature_list[[ind]]
@@ -488,7 +514,7 @@ plotMarkerList <- function(feature_list, group_var, plot_type = c("Vln", "Rdg"),
   })
   
   if (saving == TRUE) {
-    label <- strsplit(group_var, c("_"))[[1]][2]
+    label <- strsplit(group_var, "[.]|_")[[1]][2]
     pdf(file.path(working_path, sprintf("Visualization/Markers_%s_%s.pdf", plot_type, label)), 
         width = 20, height = 20)
     print(Plot_list)
@@ -504,9 +530,11 @@ RP_clu_list <- plotMarkerList(feature_list, "seurat_clusters", plot_type = "Rdg"
 RP_ano_list <- plotMarkerList(feature_list, "cluster_label", plot_type = "Rdg", saving = saving)
 ```
 
-```{r Vln and ridge plot for one gene}
+```{r Vln and ridge plot for one gene, eval = FALSE}
+featured_gene <- unlist(exist_list)[1]
+
 # Vlnplot
-VP_gene <- VlnPlot(seurat_combi, features = flist_7, 
+VP_gene <- VlnPlot(seurat_combi, features = featured_gene, 
                    group.by = "seurat_clusters", cols = pal_simpsons()(16),pt.size = 0) + 
             xlab("cell type") 
 
@@ -523,7 +551,28 @@ color.features <- viridis_pal(option = "C", direction = 1 )(100)
 (DP_gene <- FeaturePlot(seurat_combi, features=unlist(exist_list)[1:2], ncol=2, pt.size = 0.5, cols = color.features) & NoAxes())
 ```
 
+```{r plot marker heatmaps}
+seurat_sce <- as.SingleCellExperiment(seurat_combi) %>%
+  aggregateData("logcounts", by=c("seurat_clusters"), fun="mean")
+assayNames(seurat_sce) <- "logcounts"
 
+Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
+    feature <- feature_list[[ind]]
+    plot <- sechm::sechm(seurat_sce, feature, 
+             assayName = "logcounts", cluster_cols = FALSE,
+             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+             breaks=1, row_title_rot=0, show_rownames = TRUE,
+             hmcols = viridis_pal(option = "C")(50))
+  })
+
+if (saving == TRUE) {
+    pdf(file.path(working_path, "Visualization/Markers_heatmap_clusters.pdf"), 
+        width = 10, height = 7)
+    print(Plot_list)
+    dev.off()
+}
+
+```
 
 # Epilog
 
