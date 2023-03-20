@@ -75,7 +75,10 @@ Plot Vplot for QC visualization
 
 ```{r QC on mt and rb gene percentage}
 # QC processing (remove ribosome and mitochrondial RNA)
-seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 5 & percent.rb < 10 ) 
+# try 7 next time? rb was 10 now 15
+mt <- 7
+rb <- 15
+seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < mt & percent.rb < rb ) 
 
 # Recheck the violin plot after QC
 (VP_afterQC <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
@@ -118,8 +121,9 @@ Seurat::ElbowPlot(seurat_combi, ndims= 50) + ylab("variance explained (%)") +
 ```{r clustering using harmony and run UMAP}
 set.seed(2023)
 # Run Harmony integration on the dataset, and find the clusters
-seurat_combi <- seurat_combi %>% RunHarmony(group.by.vars = "orig.ident", dims.use = 1:pcs, max.iter.harmony = 50) %>%
-  FindNeighbors(reduction = "harmony", dims = 1:pcs) %>% FindClusters(resolution = 0.5)
+seurat_combi <- RunHarmony(seurat_combi, group.by.vars = "orig.ident", dims.use = 1:pcs, max.iter.harmony = 50)
+seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs)
+seurat_combi <- FindClusters(seurat_combi, resolution = 0.6) # used to be 0.5
 
 # Run UMAP based on the clsuter information
 seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs)
@@ -178,8 +182,8 @@ if (old_way_loading){
 } else{
   # Extract the data directly from the system
   exist_list <- readRDS(file.path(working_path, "Results/new_exist_list.rds"))
-  meta_data <- exist_list$Meta_data
-  exist_list <- lapply(exist_list, function(x){
+  meta_data  <- exist_list[[length(exist_list)]]
+  exist_list <- lapply(exist_list[-length(exist_list)], function(x){
     x <- x[!is.na(x)]
     x <- x[x %in% row.names(seurat_combi)]})
 }
@@ -287,17 +291,36 @@ sce_cellType <- sce_cellType[, lapply(.SD, function(x){
                             Best_n <- sort(x, index.return=TRUE, decreasing=TRUE)
                             type[Best_n$ix[1:top_number]]
                           }), .SDcols = colnames(sce_cellType)[-1]]
+sce_cellType
 ```
 
-```{r Set up the cluster label (auto and manual)}
-cellType_auto <- meta_data[unlist(sce_cellType[1,])]
-label_auto <- paste0(cellType_auto, " (", colnames(sce_cellType), ")")
 
+```{r Assigning automatic cell type names}
+acronym <- TRUE
+# Assign automatic cell type based on the highest expressed gene
+
+cellType_auto <- if (acronym == TRUE) unlist(sce_cellType[1,]) else meta_data[unlist(sce_cellType[1,])]
+label_auto <- paste0(cellType_auto, " (", colnames(sce_cellType), ")")
+```
+
+```{r Manually clalibrate the labels}
 # After tuning the results, need to change every time you change some parameters
-cellType_calibrated <- meta_data[unlist(sce_cellType[1,])] 
-cellType_calibrated[c(4,5,8,10,12)] <- c("Pre-active microglia", "Disease-Associated Microglia", 
-                                     "Inflammatory microglia-I", "Inflammatory microglia-II",
-                                     "Senescence-associated microglia") 
+cellType_calibrated <- cellType_auto
+if (rb == 15 & mt == 7) {
+  # clustering resolution 0.6
+  cellType_calibrated[c(8,9)] <- if (acronym==TRUE) c("IFM-I", "IFM-II") else 
+                                      c("Inflammatory microglia-I", "Inflammatory microglia-II")
+  cellType_calibrated[c(3)]   <- if (acronym==TRUE) c("PAM") else c("Pre-active microglia")
+
+} else if (rb == 10 & mt == 7 | rb == 10 & mt == 5) {
+  cellType_calibrated[c(9,10)] <- if (acronym==TRUE) c("IFM-I", "IFM-II") else 
+                                      c("Inflammatory microglia-I", "Inflammatory microglia-II")
+  cellType_calibrated[c(4)]   <- if (acronym==TRUE) c("PAM") else c("Pre-active microglia")
+  cellType_calibrated[c(5)]   <- if (acronym==TRUE) c("DAM") else c("Disease-Associated Microglia")
+  cellType_calibrated[c(12)]  <- if (acronym==TRUE) c("SAM") else c("Senescence-associated microglia")
+
+}
+
 label_calibrated <- paste0(cellType_calibrated, " (", colnames(sce_cellType), ")")
 ```
 
@@ -315,8 +338,8 @@ assayNames(sce_labelCali) <- "logcounts"
 ```
 
 ```{r Assign labels to Seurat object for final visualization}
-seurat_combi$cluster_auto <- label_auto[seurat_sce$ident]
-seurat_combi$cluster_calibrated <- label_calibrated[seurat_sce$ident]
+seurat_combi$cluster_auto <- cellType_auto[seurat_sce$ident]
+seurat_combi$cluster_calibrated <- cellType_calibrated[seurat_sce$ident]
 
 if (saving){
   saveRDS(seurat_combi, "Results/Annotated_seurat_harmony_qc.rds")
@@ -325,15 +348,15 @@ if (saving){
 
 ```{r Plot UMAP for annotated seurat}
 plot_labelAuto <- DimPlot(seurat_combi, group.by = "cluster_auto",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
-  plot_annotation(title="Automatic cluster labels vs cluster no.") + NoAxes()
+  plot_annotation(title="Automatic cluster labels") + NoAxes()
 
 plot_labelCali <- DimPlot(seurat_combi, group.by = "cluster_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
-  plot_annotation(title="Calibrated cluster labels vs cluster no.") + NoAxes()
+  plot_annotation(title="Calibrated cluster labels") + NoAxes()
 
-(plot_UMAPlabel <- plot_labelAuto + Plot1)
+(plot_UMAPlabel <- plot_labelAuto + plot_labelCali)
 ```
 
-# Visualization and result storage
+## Visualization and result storage
 
 ```{r cell-type specific heatmap function}
 # no. of cell type/legend <= 16!
@@ -429,7 +452,7 @@ findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellTy
 }
  
 topMatClu <- findTopGenes(sce_cluster, markerlist = exist_list)
-topMatLab <- findTopGenes(sce_labelAuto, markerlist = exist_list)
+topMatLab <- findTopGenes(sce_labelCali, markerlist = exist_list)
 
 if (saving == TRUE) {
   write.csv(top_matrix, file.path(working_path,sprintf("Results/TOP_%s_gene_per_matrix.csv", top_number)))
@@ -439,17 +462,52 @@ if (saving == TRUE) {
 
 ```{r condition composition wrt cell types}
 (plot_cellTypeCompAuto <- plotDataComposition(seruatObject = seurat_combi, classLabel = "cluster_auto", dataLabel = "orig.ident"))
-(plot_cellTypeCompCali <- plotDataComposition(seruatObject = seurat_combi, classLabel = "cluster_cali", dataLabel = "orig.ident"))
+(plot_cellTypeCompCali <- plotDataComposition(seruatObject = seurat_combi, classLabel = "cluster_calibrated", dataLabel = "orig.ident"))
 ```
 
 
 ```{r saving a pdf}
-if (saving == TRUE){
-  pdf("Visualization/Annotation_Harmony_qc.pdf", width = 15, height = 9)
-  print(...)
+if (saving != TRUE){
+  # for adding the graph
+  suppressPackageStartupMessages(library(gridExtra))
+  ClusterTable <- data.table::rbindlist(list(sce_cellType, topMatClu))
+  CellTypeTable <- topMatLab
+  pdf(sprintf("Visualization/Visualization_RB%s_MT%s.pdf", rb, mt), width = 11, height = 8)
+  print(plot_UMAP)
+  print(plot_labelAuto + plot_labelCali + plot_annotation("Automated vs. Calibrated cell type annotation"))
+  plot.new()
+  text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap clustering the gene")
+  print(hmClusterGene)
+  
+  plot.new()
+  text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap for each cluster")
+  print(hmCluster)
+  
+  plot.new()
+  text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap for each automatically annotated cell type")
+  print(hmLabelAuto)
+  
+  plot.new()
+  text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap for each manually calibrated cell type")
+  print(hmLabelCali)
+  
+  grid::grid.newpage()
+  grid::grid.text("most likely cell type in each cluster",x = (0.5), y = (0.8))
+  grid.table(sce_cellType)
+  
+  grid::grid.newpage()
+  grid::grid.text("most expressed genes in each cluster",x = (0.5), y = (0.9))
+  grid.table(topMatClu)
+  
+  grid::grid.newpage()
+  grid::grid.text("most expressed genes in each calibrated cell type",x = (0.5), y = (0.9))
+  grid.table(topMatLab)
+  
   dev.off()
 }
 ```
+
+
 
 ## Gene specific plotting (marker list)
 
