@@ -181,7 +181,7 @@ if (old_way_loading){
   
 } else{
   # Extract the data directly from the system
-  exist_list <- readRDS(file.path(working_path, "Results/new_exist_list.rds"))
+  exist_list <- readRDS(file.path(working_path, "Results/marker_list.rds"))
   meta_data  <- exist_list[[length(exist_list)]]
   exist_list <- lapply(exist_list[-length(exist_list)], function(x){
     x <- x[!is.na(x)]
@@ -347,7 +347,7 @@ seurat_combi$cluster_auto <- cellType_auto[seurat_sce$ident]
 seurat_combi$cluster_calibrated <- cellType_calibrated[seurat_sce$ident]
 
 if (saving){
-  saveRDS(seurat_combi, "Results/Annotated_seurat_harmony_qc.rds")
+  saveRDS(seurat_combi, "Results/Annotated_seurat_harmony.rds")
 }
 ```
 
