@@ -227,20 +227,25 @@ rowData(sce_cluster)[unlist(exist_list),"cellType"] <- rep(names(exist_list),len
 
 
 ```{r plot the heatmap to show the cell expression level}
-plotSpecificHeatmap <- function(sceObject, markerList, cellType = NULL, heatmapColor = "C"){
+plotSpecificHeatmap <- function(sceObject, markerList, cellType = NULL, heatmapColor = "C", gaps_col = NULL){
   
   if (is.null(cellType) == FALSE) {
     markerList <- markerList[cellType]
   }
-  assayNames(sceObject) <- "logcounts"
+  # check markerList 
+  if (is.null(names(markerList))) {
+    names(markerList) <- paste("list", seq_along(markerList), sep = "-")
+  }
+  
   # Assign a new metadata called cell type to assign the markers on them
+  assayNames(sceObject) <- "logcounts"
   rowData(sceObject)$cellType <- NA
   rowData(sceObject)[unlist(markerList),"cellType"] <- rep(names(markerList),lengths(markerList))
   
   # Generate the heatmap based on the selection
   geneToPlot <- unlist(markerList)
   sechm::sechm(sceObject, geneToPlot, 
-             assayName = "logcounts", gaps_row = "cellType", 
+             assayName = "logcounts", gaps_row = "cellType", gaps_at = gaps_col,
              show_colnames = TRUE, do.scale = TRUE, na_col = "black",
              breaks=1, row_title_rot=0, show_rownames = TRUE, 
              hmcols = viridis_pal(option = heatmapColor)(100))
@@ -347,7 +352,7 @@ if (saving){
 ```
 
 ```{r Plot UMAP for annotated seurat}
-plot_labelAuto <- DimPlot(seurat_combi, group.by = "cluster_auto",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
+plot_labelAuto <- DimPlot(seurat_combi, group.by = "cluster_auto",pt.size = 0.3, cols = pal_npg("nrc")(10), label = TRUE) + 
   plot_annotation(title="Automatic cluster labels") + NoAxes()
 
 plot_labelCali <- DimPlot(seurat_combi, group.by = "cluster_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
@@ -361,7 +366,7 @@ plot_labelCali <- DimPlot(seurat_combi, group.by = "cluster_calibrated",pt.size 
 ```{r cell-type specific heatmap function}
 # no. of cell type/legend <= 16!
 showOverallHeatmap <- function(sceObject, markerList, metaData, showAll = TRUE, cellType = NULL, 
-                               heatmapColor = "C", clusterRow = FALSE, clusterCol = TRUE, 
+                               heatmapColor = "C", clusterRow = FALSE, clusterCol = TRUE,
                                showLegend = TRUE) {
   if (showAll != TRUE) {
     if (is.null(cellType)) {
@@ -472,9 +477,11 @@ if (saving != TRUE){
   suppressPackageStartupMessages(library(gridExtra))
   ClusterTable <- data.table::rbindlist(list(sce_cellType, topMatClu))
   CellTypeTable <- topMatLab
-  pdf(sprintf("Visualization/Visualization_RB%s_MT%s.pdf", rb, mt), width = 11, height = 8)
+  pdf(sprintf("Visualization/Visualization_RB%s_MT%s.pdf", rb, mt), width = 16, height = 8)
   print(plot_UMAP)
   print(plot_labelAuto + plot_labelCali + plot_annotation("Automated vs. Calibrated cell type annotation"))
+  print(heatmap_ClusterOverview)
+  
   plot.new()
   text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap clustering the gene")
   print(hmClusterGene)
@@ -490,6 +497,9 @@ if (saving != TRUE){
   plot.new()
   text(x = 0, y = 1, adj = c(0,1), labels = "Heatmap for each manually calibrated cell type")
   print(hmLabelCali)
+  
+  print(plot_cellTypeCompAuto + plot_cellTypeCompCali + 
+          plot_annotation("Condition composition in automated vs. calibrated cell type annotation"))
   
   grid::grid.newpage()
   grid::grid.text("most likely cell type in each cluster",x = (0.5), y = (0.8))
@@ -532,22 +542,17 @@ feature_list <- lapply(list(flist_1, flist_2, flist_3, flist_4, flist_5, flist_6
 
 
 ```{r plot required heatmap}
-(hmap_marker_cluster <- sechm::sechm(sce_cluster, heatmapmarkersFinal, 
-             assayName = "logcounts", cluster_cols = TRUE,
-             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
-             breaks=1, row_title_rot=0, show_rownames = TRUE,
-             hmcols = viridis_pal(option = "C")(50)))
+colLabel <- c(rep("label", ncol(sce_labelCali)), rep("cluster", ncol(sce_cluster)))
+sce_combined <- SingleCellExperiment(cbind(assay(sce_labelCali), assay(sce_cluster)), 
+                                     rowData = rowData(sce_labelCali), colData = colLabel)
 
-(hmap_marker_celltype <- sechm::sechm(sce_cluster, heatmapmarkersFinal, 
-             assayName = "logcounts", cluster_cols = TRUE,
-             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
-             breaks=1, row_title_rot=0, show_rownames = TRUE,
-             hmcols = viridis_pal(option = "C")(50)))
+hmap_feature <- plotSpecificHeatmap(sce_combined, feature_list, gaps_col = "X")
+hmap_marker  <- plotSpecificHeatmap(sce_combined, list(Markers=heatmapmarkersFinal), gaps_col = "X")
 
 if (saving == TRUE) {
-  pdf(file.path(working_path, "Visualization/Heatmap_Markers.pdf"), width = 10, height = 10)
-  print(hmap_marker_cluster)
-  print(hmap_marker_celltype)
+  pdf(file.path(working_path, "Visualization/Heatmap_Markers_Calibrated.pdf"), width = 17, height = 10)
+  print(hmap_feature)
+  print(hmap_marker)
   dev.off()
 }
 ```
