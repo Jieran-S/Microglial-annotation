@@ -16,6 +16,7 @@ library(Seurat)
 library(harmony)
 # PseudoBulkAnalysis
 library(SummarizedExperiment)
+library(SingleCellExperiment)
 library(muscat)
 # pipelining
 library(dplyr)
@@ -35,6 +36,161 @@ setwd(working_path)
 
 saving = FALSE
 ```
+
+```{r define functions}
+
+plotDataComposition <- function(seruatObject, classLabel, dataLabel, colorOption = "G") {
+  ca <- data.table(table(cluster=unlist(seruatObject[[classLabel]]), 
+                   sample=unlist(seruatObject[[dataLabel]])))
+  ca[, percent := 100*(N/sum(N)), by = sample]
+  
+  plot_cluster_comp <- ggplot(as.data.frame(ca), aes(sample, cluster, fill=percent)) + 
+    geom_tile() + 
+    scale_fill_gradientn(colors = viridis_pal(option = colorOption, end = 0.95, direction = -1)(10)) +
+    geom_text(aes(label= round(percent, digits = 2)) , color = "white") + 
+    coord_fixed(ratio = 0.25) +
+    guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18))
+}
+
+plotSpecificHeatmap <- function(sceObject, markerList, cellType = NULL, heatmapColor = "C", gaps_col = NULL){
+  
+  if (is.null(cellType) == FALSE) {
+    markerList <- markerList[cellType]
+  }
+  # check markerList 
+  if (is.null(names(markerList))) {
+    names(markerList) <- paste("list", seq_along(markerList), sep = "-")
+  }
+  
+  # Assign a new metadata called cell type to assign the markers on them
+  assayNames(sceObject) <- "logcounts"
+  rowData(sceObject)$cellType <- NA
+  rowData(sceObject)[unlist(markerList),"cellType"] <- rep(names(markerList),lengths(markerList))
+  
+  # Generate the heatmap based on the selection
+  geneToPlot <- unlist(markerList)
+  sechm::sechm(sceObject, geneToPlot, 
+             assayName = "logcounts", gaps_row = "cellType", gaps_at = gaps_col,
+             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+             breaks=1, row_title_rot=0, show_rownames = TRUE, 
+             hmcols = viridis_pal(option = heatmapColor)(100))
+}
+
+# cluster, threshold, oldCellType, adjustedCellType should have the same length
+AdjustMarkerAssignment <- function(heatmapObject, markerList, cluster, 
+                                   threshold, oldCellType, adjustedCellType, 
+                                   visualization = FALSE){
+  newMarkerList <- markerList
+  # TODO: Check if the dimension agrees
+  if (length(cluster) > 1 & length(threshold) == 1) {
+    threshold <- rep(threshold, length(cluster))
+  } 
+  
+  geneOfInterest <- lapply(seq_along(cluster), function(ind) {
+    heatmapObject@row_names_param$labels[which(heatmapObject@matrix[,cluster[ind]] > threshold[ind])]
+  })
+  for (geneList in geneOfInterest) {
+    for (gene in geneList) {
+      if (gene %in% markerList[oldCellType]) {
+        newMarkerList[adjustedCellType] <- append(newMarkerList[adjustedCellType], gene)
+        newMarkerList[oldCellType] <- newMarkerList[oldCellType][-which(gene == newMarkerList[oldCellType])]
+      }}}
+  
+  return(newMarkerList)
+}
+
+# no. of cell type/legend <= 16!
+showOverallHeatmap <- function(sceObject, markerList, metaData, showAll = TRUE, cellType = NULL, 
+                               heatmapColor = "C", clusterRow = FALSE, clusterCol = TRUE,
+                               showLegend = TRUE) {
+  if (showAll != TRUE) {
+    if (is.null(cellType)) {
+      stop("Please specify cell types to show.")
+    }
+    markerList <- markerList[cellType]
+  }
+  
+  if (showLegend == TRUE) {
+    # Generate heatmap block and anntoation color
+    cellname <- c(metaData[names(markerList)])
+    
+    # Set up the color for the heatmap 
+    legendColors <- pal_simpsons()(length(cellname))
+    names(legendColors) <- cellname
+    legendColors <- list(type = legendColors)
+    
+    # Set up the annotation matrix
+    annoDF <- data.frame(row.names=unlist(markerList), 
+               type=rep(cellname, lengths(markerList)))
+    
+    pheatmap(assay(sceObject)[unlist(markerList),], 
+               color = viridis_pal(option = heatmapColor)(100),
+               annotation_row = annoDF, 
+               annotation_colors = legendColors,
+               gaps_row = cumsum(lengths(markerList)),
+               split=rep(cellname, lengths(markerList)), 
+               cluster_rows=clusterRow, cluster_cols = clusterCol,
+               scale="row")
+  } else {
+    pheatmap(assay(sceObject)[unlist(markerList),], 
+               color = viridis_pal(option = heatmapColor)(100),
+               gaps_row = cumsum(lengths(markerList)),
+               split=rep(cellname, lengths(markerList)), 
+               cluster_rows=clusterRow, cluster_cols = clusterCol,
+               scale="row")
+  }
+}
+
+
+findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellType = NULL){
+  if (allMarker != TRUE) {
+    if (is.null(cellType)){
+      stop("Specify the cell type for gene return! /n")
+    }
+    markerlist <- unlist(markerlist[cellType])
+  }
+  topMat <- data.table(assay(sceObject)[unlist(markerlist),], keep.rownames = TRUE)
+  topMat <- topMat[, lapply(.SD, function(x){
+                            Best_n <- sort(x, index.return=TRUE, decreasing=TRUE)
+                            rn[Best_n$ix[1:n]]
+                          }), .SDcols = colnames(topMat)[-1]]
+  return(topMat)
+}
+ 
+plotMarkerList <- function(countObject, feature_list, plot_type = c("Vln", "Rdg", "Htm"), 
+                           group_var = "seurat_clusters", saving = FALSE){
+  Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
+    feature <- feature_list[[ind]]
+    if (plot_type == "Vln") {
+      Plot <- VlnPlot(countObject, features = feature, 
+                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16),pt.size = 0) + 
+        plot_annotation(title = sprintf("list_%s", ind))
+    } else if (plot_type == "Rdg") {
+      Plot <- RidgePlot(countObject, features = feature, 
+                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16)) + 
+        plot_annotation(title = sprintf("list_%s", ind))
+    } else if (plot_type = "Htm") {
+      Plot <- sechm::sechm(countObject, feature, 
+             assayName = "logcounts", cluster_cols = FALSE,
+             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+             breaks=1, row_title_rot=0, show_rownames = TRUE,
+             hmcols = viridis_pal(option = "C")(50))
+    }
+      return(Plot)
+  })
+  
+  if (saving == TRUE) {
+    label <- strsplit(group_var, "[.]|_")[[1]][2]
+    pdf(file.path(working_path, sprintf("Visualization/Markers_%s_%s.pdf", plot_type, label)), 
+        width = 20, height = 20)
+    print(Plot_list)
+    dev.off()
+  }
+  
+  return(Plot_list)
+}
+```
+
 
 ## Data creation and input
 
@@ -142,19 +298,6 @@ Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal
 ```
 
 ```{r Find the percentile composition of conditions in each clusters}
-plotDataComposition <- function(seruatObject, classLabel, dataLabel, colorOption = "G") {
-  ca <- data.table(table(cluster=unlist(seruatObject[[classLabel]]), 
-                   sample=unlist(seruatObject[[dataLabel]])))
-  ca[, percent := 100*(N/sum(N)), by = sample]
-  
-  plot_cluster_comp <- ggplot(as.data.frame(ca), aes(sample, cluster, fill=percent)) + 
-    geom_tile() + 
-    scale_fill_gradientn(colors = viridis_pal(option = colorOption, end = 0.95, direction = -1)(10)) +
-    geom_text(aes(label= round(percent, digits = 2)) , color = "white") + 
-    coord_fixed(ratio = 0.25) +
-    guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18))
-}
-
 (plot_clusterComp <- plotDataComposition(seruatObject = seurat_combi, classLabel = "seurat_clusters", dataLabel = "orig.ident"))
 ```
 
@@ -181,7 +324,7 @@ if (old_way_loading){
   
 } else{
   # Extract the data directly from the system
-  exist_list <- readRDS(file.path(working_path, "Results/marker_list.rds"))
+  exist_list <- readRDS(file.path(working_path, "Markers/marker_list.rds"))
   meta_data  <- exist_list[[length(exist_list)]]
   exist_list <- lapply(exist_list[-length(exist_list)], function(x){
     x <- x[!is.na(x)]
@@ -218,7 +361,7 @@ seurat_sce <- as.SingleCellExperiment(seurat_combi)
 ```{r Extract average expression rate of each gene for each cluster}
 # Find the average expression of each gene in each cluster
 sce_cluster <- muscat::aggregateData(seurat_sce, "logcounts", by=c("ident"), fun="mean")
-assayNames(sce_cluster) <- "logcounts"
+SummarizedExperiment::assayNames(sce_cluster) <- "logcounts"
 
 # Assign a new metadata called cell type to assign the markers on them
 rowData(sce_cluster)$cellType <- NA
@@ -227,60 +370,10 @@ rowData(sce_cluster)[unlist(exist_list),"cellType"] <- rep(names(exist_list),len
 
 
 ```{r plot the heatmap to show the cell expression level}
-plotSpecificHeatmap <- function(sceObject, markerList, cellType = NULL, heatmapColor = "C", gaps_col = NULL){
-  
-  if (is.null(cellType) == FALSE) {
-    markerList <- markerList[cellType]
-  }
-  # check markerList 
-  if (is.null(names(markerList))) {
-    names(markerList) <- paste("list", seq_along(markerList), sep = "-")
-  }
-  
-  # Assign a new metadata called cell type to assign the markers on them
-  assayNames(sceObject) <- "logcounts"
-  rowData(sceObject)$cellType <- NA
-  rowData(sceObject)[unlist(markerList),"cellType"] <- rep(names(markerList),lengths(markerList))
-  
-  # Generate the heatmap based on the selection
-  geneToPlot <- unlist(markerList)
-  sechm::sechm(sceObject, geneToPlot, 
-             assayName = "logcounts", gaps_row = "cellType", gaps_at = gaps_col,
-             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
-             breaks=1, row_title_rot=0, show_rownames = TRUE, 
-             hmcols = viridis_pal(option = heatmapColor)(100))
-}
-
-
 # Visualizing the heatmap data of the expression value
 (heatmap_ClusterOverview <- plotSpecificHeatmap(sce_cluster, exist_list))
 ```
 
-
-```{r making corrected marker gene list}
-# cluster, threshold, oldCellType, adjustedCellType should have the same length
-AdjustMarkerAssignment <- function(heatmapObject, markerList, cluster, 
-                                   threshold, oldCellType, adjustedCellType, 
-                                   visualization = FALSE){
-  newMarkerList <- markerList
-  # TODO: Check if the dimension agrees
-  if (length(cluster) > 1 & length(threshold) == 1) {
-    threshold <- rep(threshold, length(cluster))
-  } 
-  
-  geneOfInterest <- lapply(seq_along(cluster), function(ind) {
-    heatmapObject@row_names_param$labels[which(heatmapObject@matrix[,cluster[ind]] > threshold[ind])]
-  })
-  for (geneList in geneOfInterest) {
-    for (gene in geneList) {
-      if (gene %in% markerList[oldCellType]) {
-        newMarkerList[adjustedCellType] <- append(newMarkerList[adjustedCellType], gene)
-        newMarkerList[oldCellType] <- newMarkerList[oldCellType][-which(gene == newMarkerList[oldCellType])]
-      }}}
-  
-  return(newMarkerList)
-}
-```
 
 ```{r Summarize cell type expression based on average gene expression}
 # Return average expression of genes in each cell type in each cluster
@@ -347,7 +440,7 @@ seurat_combi$cluster_auto <- cellType_auto[seurat_sce$ident]
 seurat_combi$cluster_calibrated <- cellType_calibrated[seurat_sce$ident]
 
 if (saving){
-  saveRDS(seurat_combi, "Results/Annotated_seurat_harmony.rds")
+  saveRDS(seurat_combi, "Annotated_seurat_harmony.rds")
 }
 ```
 
@@ -364,47 +457,6 @@ plot_labelCali <- DimPlot(seurat_combi, group.by = "cluster_calibrated",pt.size 
 ## Visualization and result storage
 
 ```{r cell-type specific heatmap function}
-# no. of cell type/legend <= 16!
-showOverallHeatmap <- function(sceObject, markerList, metaData, showAll = TRUE, cellType = NULL, 
-                               heatmapColor = "C", clusterRow = FALSE, clusterCol = TRUE,
-                               showLegend = TRUE) {
-  if (showAll != TRUE) {
-    if (is.null(cellType)) {
-      stop("Please specify cell types to show.")
-    }
-    markerList <- markerList[cellType]
-  }
-  
-  if (showLegend == TRUE) {
-    # Generate heatmap block and anntoation color
-    cellname <- c(metaData[names(markerList)])
-    
-    # Set up the color for the heatmap 
-    legendColors <- pal_simpsons()(length(cellname))
-    names(legendColors) <- cellname
-    legendColors <- list(type = legendColors)
-    
-    # Set up the annotation matrix
-    annoDF <- data.frame(row.names=unlist(markerList), 
-               type=rep(cellname, lengths(markerList)))
-    
-    pheatmap(assay(sceObject)[unlist(markerList),], 
-               color = viridis_pal(option = heatmapColor)(100),
-               annotation_row = annoDF, 
-               annotation_colors = legendColors,
-               gaps_row = cumsum(lengths(markerList)),
-               split=rep(cellname, lengths(markerList)), 
-               cluster_rows=clusterRow, cluster_cols = clusterCol,
-               scale="row")
-  } else {
-    pheatmap(assay(sceObject)[unlist(markerList),], 
-               color = viridis_pal(option = heatmapColor)(100),
-               gaps_row = cumsum(lengths(markerList)),
-               split=rep(cellname, lengths(markerList)), 
-               cluster_rows=clusterRow, cluster_cols = clusterCol,
-               scale="row")
-  }
-}
 
 (hmCluster <- showOverallHeatmap(sce_cluster, markerList = exist_list, metaData = meta_data))
 (hmClusterGene <- showOverallHeatmap(sce_cluster, markerList = exist_list, metaData = meta_data, clusterRow = TRUE))
@@ -441,26 +493,11 @@ if (saving == TRUE){
 
 
 ```{r Find out top n differentially expressed genes in each object}
-findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellType = NULL){
-  if (allMarker != TRUE) {
-    if (is.null(cellType)){
-      stop("Specify the cell type for gene return! /n")
-    }
-    markerlist <- unlist(markerlist[cellType])
-  }
-  topMat <- data.table(assay(sceObject)[unlist(markerlist),], keep.rownames = TRUE)
-  topMat <- topMat[, lapply(.SD, function(x){
-                            Best_n <- sort(x, index.return=TRUE, decreasing=TRUE)
-                            rn[Best_n$ix[1:n]]
-                          }), .SDcols = colnames(topMat)[-1]]
-  return(topMat)
-}
- 
 topMatClu <- findTopGenes(sce_cluster, markerlist = exist_list)
 topMatLab <- findTopGenes(sce_labelCali, markerlist = exist_list)
 
 if (saving == TRUE) {
-  write.csv(top_matrix, file.path(working_path,sprintf("Results/TOP_%s_gene_per_matrix.csv", top_number)))
+  write.csv(top_matrix, file.path(working_path,sprintf("TOP_%s_gene_per_matrix.csv", top_number)))
 }
 ```
 
@@ -559,39 +596,6 @@ if (saving == TRUE) {
 
 
 ```{r plot required vln plot & ridge plot, eval = FALSE}
-plotMarkerList <- function(countObject, feature_list, plot_type = c("Vln", "Rdg", "Htm"), 
-                           group_var = "seurat_clusters", saving = FALSE){
-  Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
-    feature <- feature_list[[ind]]
-    if (plot_type == "Vln") {
-      Plot <- VlnPlot(countObject, features = feature, 
-                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16),pt.size = 0) + 
-        plot_annotation(title = sprintf("list_%s", ind))
-    } else if (plot_type == "Rdg") {
-      Plot <- RidgePlot(countObject, features = feature, 
-                group.by = sprintf("%s", group_var), cols = pal_simpsons()(16)) + 
-        plot_annotation(title = sprintf("list_%s", ind))
-    } else if (plot_type = "Htm") {
-      Plot <- sechm::sechm(countObject, feature, 
-             assayName = "logcounts", cluster_cols = FALSE,
-             show_colnames = TRUE, do.scale = TRUE, na_col = "black",
-             breaks=1, row_title_rot=0, show_rownames = TRUE,
-             hmcols = viridis_pal(option = "C")(50))
-    }
-      return(Plot)
-  })
-  
-  if (saving == TRUE) {
-    label <- strsplit(group_var, "[.]|_")[[1]][2]
-    pdf(file.path(working_path, sprintf("Visualization/Markers_%s_%s.pdf", plot_type, label)), 
-        width = 20, height = 20)
-    print(Plot_list)
-    dev.off()
-  }
-  
-  return(Plot_list)
-}
-
 VP_clu_list <- plotMarkerList(seurat_combi, feature_list, "seurat_clusters", plot_type = "Vln", saving = saving)
 VP_ano_list <- plotMarkerList(seurat_combi, feature_list, "label_auto", plot_type = "Vln", saving = saving)
 RP_clu_list <- plotMarkerList(seurat_combi, feature_list, "seurat_clusters", plot_type = "Rdg", saving = saving)
