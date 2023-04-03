@@ -19,7 +19,7 @@ library(SummarizedExperiment)
 library(SingleCellExperiment)
 library(muscat)
 # pipeline and formatting
-library(dplyr)
+library(dplyr) 
 library(data.table)
 # plotting
 library(ggplot2)
@@ -462,6 +462,7 @@ if (old_way_loading){
 #' you can use it for an overview.
 
 OverallHeatmap = FALSE
+
 if (OverallHeatmap){
 # Find differential marker genes in across different clusters 
 seurat_markers <- Seurat::FindAllMarkers(seurat_combi, only.pos = TRUE, min.pct = 0.25, test.use = "bimod", verbose = FALSE) %>%
@@ -657,7 +658,7 @@ seurat_combi$orig.ident[which(seurat_combi$orig.ident  == "GpnmbKO_1" | seurat_c
 
 
 ```{r saving a pdf}
-if (saving != TRUE){
+if (saving == TRUE){
   # for adding the graph
   suppressPackageStartupMessages(library(gridExtra))
   ClusterTable <- data.table::rbindlist(list(sce_cellType, topMatClu))
@@ -779,29 +780,6 @@ color.features <- viridis_pal(option = "C", direction = 1 )(100)
 (DP_gene <- FeaturePlot(seurat_combi, features=unlist(exist_list)[1:2], ncol=2, pt.size = 0.5, cols = color.features) & NoAxes())
 ```
 
-```{r Return significantly expressed value}
-Target_celltype <- names(exist_list)[unlist(lapply(exist_list, function(x) featured_gene %in% x))]
-
-seruat_targetcell <- as.numeric(seurat_combi[["RNA"]][featured_gene,])
-
-WTExpression <- data.frame(Expression = seruat_targetcell[which(seurat_combi$orig.ident == "WT" & 
-                                          seurat_combi$cluster_calibrated == Target_celltype)],
-                           Condition = "WT")
-
-KOExpression <- data.frame(Expression = seruat_targetcell[which(seurat_combi$orig.ident == "GpnmbKO" & 
-                                          seurat_combi$cluster_calibrated == Target_celltype)],
-                           Condition = "GpnmbKO")
-
-
-CompareDF <- rbindlist(list(WTExpression, KOExpression))
-
-(Barplot_gene <- ggplot(CompareDF, aes(x=Condition, y=Expression, fill = Condition)) + 
-  geom_boxplot() +
-  geom_signif(comparisons = list(c("WT", "GpnmbKO")), 
-              map_signif_level=TRUE) + 
-    xlab(featured_gene))
-
-```
 
 # Epilog
 
