@@ -11,11 +11,11 @@ For annotating scRNA-seq data for microglial cells
 
 3. Normalization, Scaling and PCA/integration 
 
-> Note: Here should try different integration methods + Different sequenced between integration and PCA
-
 4. Clustering and visualization 
 
-5. Annotation and visualization
+5. Annotation 
+
+6. Visualization
 
 ## Annotation breakdown
 
@@ -23,15 +23,13 @@ For annotating scRNA-seq data for microglial cells
 
 2. Pseudo-bulk analysis: mean log expression data for each cluster -> Heatmap again (low resolution)
 
-3. Selecting labels for each cluster based on the most expressed gene and their corresponding cell types
+3. Summarizing each cell type based on the mean expression value for its corresponding marker genes
 
 4. Try hirearchical classification on labelling (Heatmap)
 
-> Discuss: is that a reliable way for labeling? Should we tune the clustering resolution to avoid inaccurate labelling?
-
 5. Label and visualization again
 
-6. Subsequent visulization of barplot (cluster percentage), vlnplot (expression profile), and ridgeplot (similar comparision data)
+6. Subsequent visulization of barplot (in case of larger sample sizes), vlnplot (expression profile), and ridgeplot (similar comparision data)
 
-![image](https://user-images.githubusercontent.com/91852421/215492226-2d0a6f63-bf0c-4420-b0d7-bf9a457cb2fc.png)
-Visualization of example datasets
+<img width="559" alt="image" src="https://user-images.githubusercontent.com/91852421/229557440-a6cab9f1-5302-4d0e-b578-7a1817166b61.png">
+
