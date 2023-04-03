@@ -3,6 +3,8 @@ For annotating scRNA-seq data for microglial cells
 
 ## Workflow 
 
+<img width="828" alt="image" src="https://user-images.githubusercontent.com/91852421/229467110-89ac1f96-93b5-4b16-861a-9e8fea0d4476.png">
+
 1. Import and preprocess the data
 
 2. Quality control and visualization 
