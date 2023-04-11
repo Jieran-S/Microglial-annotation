@@ -279,7 +279,7 @@ findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellTy
 
 
 plotMarkerList <- function(countObject, feature_list, plot_type = c("Vln", "Rdg", "Htm"), 
-                           group_var = c("seurat_clusters","label_calibrated","label_auto"), 
+                           group_var = c("orig.ident", "seurat_clusters","label_calibrated","label_auto"), 
                            saving = FALSE){
   
   if (is.list(feature_list[[1]]) != TRUE) {
@@ -794,9 +794,21 @@ color.features <- viridis_pal(option = "C", direction = 1 )(100)
 presentMarker <- c("Trem2","Cd33","Apoe","Sorl1","Mef2c","Spp1","Il1rap","H2-Eb1","Clu","Tyrobp","Ccl3","Ccl4","Ifit1","Myd88","Mtor","Cx3cr1","Sirpa","Mafb","Igf1")
 
 (presentHeatmap <- plotMarkerList(countObject = sce_labelCali, feature_list = presentMarker, 
-                                 plot_type = "Htm", group_var = "label_calibrated"))
-presentVln <- VlnPlot(seurat_combi, features = presentMarker[-7], group.by = "label_calibrated", cols = pal_simpsons()(16),pt.size = 0, ncol = 6) 
-presentRdg <- RidgePlot(seurat_combi, features = presentMarker[-7], group.by = "label_calibrated", cols =  pal_simpsons()(16), ncol = 6) 
+                                 plot_type = "Htm", group_var = "orig.ident"))
+presentVln <- VlnPlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols = pal_simpsons()(16),pt.size = 0, ncol = 10) 
+presentRdg <- RidgePlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols =  pal_simpsons()(16), ncol = 10) 
+
+if (saving == TRUE) {
+  pdf("Visualization/Marker_Vln_ident.pdf", width = 24, height = 20)
+  print(presentVln)
+  print(presentRdg)
+  dev.off()
+
+  pdf("Visualization/Marker_Rdg_ident.pdf", width = 30, height = 8)
+  print(presentRdg)
+  dev.off()  
+}
+
 ```
 
 
