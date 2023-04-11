@@ -269,7 +269,7 @@ findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellTy
 #' @param feature_list essentially the markerList in the previous functions
 #' @param plot_type type of plot to return, can be Violin plot ("Vln"), ridge 
 #'    plot ("Rdg"), and heatmap ("Heatmap")
-#' @param group_var columns on the metadata file in the seurat object indicating 
+#' @param group_var  columns on the metadata file in the seurat object indicating 
 #'    if we're using clusters or cell types (for heatmap it can be NULL, but it 
 #'    need to be used for the pdf generated if saving is TRUE, so maybe just 
 #'    keep it as the same way)
@@ -279,9 +279,14 @@ findTopGenes <- function(sceObject, markerlist, n = 20, allMarker = TRUE, cellTy
 
 
 plotMarkerList <- function(countObject, feature_list, plot_type = c("Vln", "Rdg", "Htm"), 
-                           group_var = "seurat_clusters", saving = FALSE){
+                           group_var = c("seurat_clusters","label_calibrated","label_auto"), 
+                           saving = FALSE){
   
-  Plot_list <- lapply(seq_len(length(feature_list)), function(ind) {
+  if (is.list(feature_list[[1]]) != TRUE) {
+    feature_list <- list(feature_list)
+  }
+  
+  Plot_list <- lapply(seq_along(feature_list), function(ind) {
     feature <- feature_list[[ind]]
     if (plot_type == "Vln") {
       Plot <- VlnPlot(countObject, features = feature, 
@@ -465,7 +470,7 @@ OverallHeatmap = FALSE
 
 if (OverallHeatmap){
 # Find differential marker genes in across different clusters 
-seurat_markers <- Seurat::FindAllMarkers(seurat_combi, only.pos = TRUE, min.pct = 0.25, test.use = "bimod", verbose = FALSE) %>%
+seurat_markers <- Seurat::FindAllMarkers(seurat_combi, min.pct = 0.2, test.use = "bimod", verbose = FALSE) %>%
     group_by(cluster) %>%
     subset(gene %in% unlist(exist_list))
 # Plot the heatmap
@@ -475,14 +480,18 @@ seurat_markers <- Seurat::FindAllMarkers(seurat_combi, only.pos = TRUE, min.pct 
 
 ## Pseudo bulk analysis for annotation
 
-```{r Set up the single cell experiment object}
+```{r Set up sce object}
 # Create SingleCellExperiment object for easier manipulation
-seurat_sce <- as.SingleCellExperiment(seurat_combi)
+logcounts <- GetAssayData(seurat_combi)
+seurat_sce <- SingleCellExperiment(assays = logcounts, 
+                                   colData = seurat_combi@meta.data, 
+                                   rowData = rownames(seurat_combi))
+assayNames(seurat_sce) <- "logcounts"
 ```
 
 ```{r Extract average expression rate of each gene for each cluster}
 # Find the average expression of each gene in each cluster
-sce_cluster <- muscat::aggregateData(seurat_sce, "logcounts", by=c("ident"), fun="mean")
+sce_cluster <- muscat::aggregateData(seurat_sce, "logcounts", by=c("seurat_clusters"), fun="mean")
 SummarizedExperiment::assayNames(sce_cluster) <- "logcounts"
 
 # Assign a new metadata called cell type to assign the markers on them
@@ -546,8 +555,8 @@ label_calibrated <- paste0(cellType_calibrated, " (", colnames(sce_cellType), ")
 
 ```{r Create new sce object for cell-type-based heatmap generation}
 # we convert the cells' cluster labels to cell type labels:
-seurat_sce$label_auto <- cellType_auto[seurat_sce$ident]
-seurat_sce$label_cali <- cellType_calibrated[seurat_sce$ident]
+seurat_sce$label_auto <- cellType_auto[seurat_sce$seurat_clusters]
+seurat_sce$label_cali <- cellType_calibrated[seurat_sce$seurat_clusters]
 
 # we aggregate again to pseudo-bulk using the new clusters
 sce_labelAuto <- aggregateData(seurat_sce, "logcounts", by=c("label_auto"), fun="mean")
@@ -558,8 +567,8 @@ assayNames(sce_labelCali) <- "logcounts"
 ```
 
 ```{r Assign labels to Seurat object for final visualization}
-seurat_combi$cluster_auto <- cellType_auto[seurat_sce$ident]
-seurat_combi$cluster_calibrated <- cellType_calibrated[seurat_sce$ident]
+seurat_combi$label_auto <- cellType_auto[seurat_sce$seurat_clusters]
+seurat_combi$label_calibrated <- cellType_calibrated[seurat_sce$seurat_clusters]
 
 if (saving){
   saveRDS(seurat_combi, "Annotated_seurat_harmony.rds")
@@ -567,10 +576,10 @@ if (saving){
 ```
 
 ```{r Plot UMAP for annotated seurat}
-plot_labelAuto <- DimPlot(seurat_combi, group.by = "cluster_auto",pt.size = 0.3, cols = pal_npg("nrc")(10), label = TRUE) + 
+plot_labelAuto <- DimPlot(seurat_combi, group.by = "label_auto",pt.size = 0.3, cols = pal_npg("nrc")(10), label = TRUE) + 
   plot_annotation(title="Automatic cluster labels") + NoAxes()
 
-plot_labelCali <- DimPlot(seurat_combi, group.by = "cluster_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
+plot_labelCali <- DimPlot(seurat_combi, group.by = "label_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
   plot_annotation(title="Calibrated cluster labels") + NoAxes()
 
 (plot_UMAPlabel <- plot_labelAuto + plot_labelCali)
@@ -614,7 +623,7 @@ if (saving == TRUE){
 
 ```{r Sankey Diagram between cluster and label}
 links <- data.table(table(source=unlist(paste0("Cluster_", seurat_combi$seurat_clusters)), 
-                             target=unlist(seurat_combi$cluster_calibrated))) %>% 
+                             target=unlist(seurat_combi$label_calibrated))) %>% 
   .[N != 0,] %>% .[order(-N),]
 
 
@@ -652,8 +661,8 @@ if (saving == TRUE) {
 ```{r condition composition wrt cell types}
 seurat_combi$orig.ident[which(seurat_combi$orig.ident  == "GpnmbKO_1" | seurat_combi$orig.ident  == "GpnmbKO_2")] <- "GpnmbKO"
 
-(plot_cellTypeCompAuto <- plotDataComposition(seruatObject = seurat_combi, classLabel = "cluster_auto", dataLabel = "orig.ident"))
-(plot_cellTypeCompCali <- plotDataComposition(seruatObject = seurat_combi, classLabel = "cluster_calibrated", dataLabel = "orig.ident"))
+(plot_cellTypeCompAuto <- plotDataComposition(seruatObject = seurat_combi, classLabel = "label_auto", dataLabel = "orig.ident"))
+(plot_cellTypeCompCali <- plotDataComposition(seruatObject = seurat_combi, classLabel = "label_calibrated", dataLabel = "orig.ident"))
 ```
 
 
@@ -762,14 +771,14 @@ VPClu_gene <- VlnPlot(seurat_combi, features = featured_gene,
             xlab("Clusters") 
 
 VPLab_gene <- VlnPlot(seurat_combi, features = featured_gene, 
-                   group.by = "cluster_calibrated", cols = pal_futurama("planetexpress")(12) ,pt.size = 0) + 
+                   group.by = "label_calibrated", cols = pal_futurama("planetexpress")(12) ,pt.size = 0) + 
             xlab("Cell type") 
 # ridge plot
 RPClu_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "seurat_clusters", 
                      cols = pal_simpsons()(16), sort = FALSE, stack = FALSE)  + 
             xlab("Expression value")
 
-RPLab_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "cluster_calibrated", 
+RPLab_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "label_calibrated", 
                      cols = pal_futurama("planetexpress")(12), sort = FALSE, stack = FALSE)  + 
             xlab("Expression value") 
 
@@ -779,6 +788,17 @@ RPLab_gene <- RidgePlot(seurat_combi, features = featured_gene, group.by = "clus
 color.features <- viridis_pal(option = "C", direction = 1 )(100)
 (DP_gene <- FeaturePlot(seurat_combi, features=unlist(exist_list)[1:2], ncol=2, pt.size = 0.5, cols = color.features) & NoAxes())
 ```
+
+
+```{r Presentation marker plots}
+presentMarker <- c("Trem2","Cd33","Apoe","Sorl1","Mef2c","Spp1","Il1rap","H2-Eb1","Clu","Tyrobp","Ccl3","Ccl4","Ifit1","Myd88","Mtor","Cx3cr1","Sirpa","Mafb","Igf1")
+
+(presentHeatmap <- plotMarkerList(countObject = sce_labelCali, feature_list = presentMarker, 
+                                 plot_type = "Htm", group_var = "label_calibrated"))
+presentVln <- VlnPlot(seurat_combi, features = presentMarker[-7], group.by = "label_calibrated", cols = pal_simpsons()(16),pt.size = 0, ncol = 6) 
+presentRdg <- RidgePlot(seurat_combi, features = presentMarker[-7], group.by = "label_calibrated", cols =  pal_simpsons()(16), ncol = 6) 
+```
+
 
 
 # Epilog
