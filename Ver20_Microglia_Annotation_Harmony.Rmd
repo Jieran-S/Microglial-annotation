@@ -2,7 +2,18 @@
 title: "Microglia_Annotation"
 author: "Jieran Sun"
 date: '2023-01-14'
-output: html_document
+output: 
+  html_document:
+    mathjax: default
+    number_sections: no 
+    theme: spacelab
+    toc: yes
+    toc_depth: 3
+    toc_float: 
+      collapsed: true
+      smooth_scroll: yes 
+editor_options:
+  chunk_output_type: inline
 ---
 # Preamble
 
@@ -32,9 +43,9 @@ library(sechm)
 library(pheatmap)
 })
 
-data_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Data"
+data_path <- "/Users/jiesun/Storage/Work/Projects/PAST/Microglial_annotation/Data"
 working_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Microglial-annotation"
-setwd(working_path)
+# setwd(working_path)
 ```
 
 ```{r Do you want to save all data and visualization?}
@@ -369,13 +380,14 @@ seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA 
 ```
 
 ```{r Dimred and PC selection}
+ver = FALSE
 set.seed(2023)
 # Normalize, scale and run PCA on the seurat object
 seurat_combi <- seurat_combi %>%  
-    NormalizeData() %>%
-    FindVariableFeatures(nfeatures = 3000)  %>%
-    ScaleData() %>%
-    RunPCA(npcs = 50)
+    NormalizeData(verbose = ver) %>%
+    FindVariableFeatures(nfeatures = 3000, verbose = ver)  %>%
+    ScaleData(verbose = ver) %>%
+    RunPCA(npcs = 50, verbose = ver)
 
 #' Select essential PCs for clustering 
 #' PC is selected based on 2 criteria, either the no. of pcs can already 
@@ -403,13 +415,14 @@ Seurat::ElbowPlot(seurat_combi, ndims= 50) + ylab("variance explained (%)") +
 ```{r clustering using harmony and run UMAP}
 set.seed(2023)
 # Run Harmony integration on the dataset, and find the clusters
-seurat_combi <- RunHarmony(seurat_combi, group.by.vars = "orig.ident", dims.use = 1:pcs, max.iter.harmony = 50)
-seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs)
-seurat_combi <- FindClusters(seurat_combi, resolution = 0.6) # used to be 0.5
+seurat_combi <- RunHarmony(seurat_combi, group.by.vars = "orig.ident", 
+                           dims.use = 1:pcs, max.iter.harmony = 50, verbose = ver)
+seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs, verbose = ver)
+seurat_combi <- FindClusters(seurat_combi, resolution = 0.6, verbose = ver) # used to be 0.5
 
 # Run UMAP based on the clsuter information
-seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs)
-```
+seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, verbose = ver)
+``` 
 
 ```{r UMAP plots for clustering data}
 # UMAP Plot colored based on clusters
@@ -436,9 +449,9 @@ old_way_loading = FALSE
 if (old_way_loading){
   
   # Import list of marker genes 
-  marker_list <- readxl::read_excel(file.path(working_path,"Marker_list_BU.xlsx"))[-10]
+  marker_list <- readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[-10]
   
-  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"Marker_list_BU.xlsx"))[10])
+  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[10])
   meta_data <- unlist(data.table::tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 2))
   names(meta_data) <- unlist(tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 1))
   meta_data <- meta_data[!is.na(meta_data)]
@@ -450,7 +463,7 @@ if (old_way_loading){
   
 } else{
   # Extract the data directly from the system
-  exist_list <- readRDS(file.path(working_path, "Markers/marker_list.rds"))
+  exist_list <- readRDS("Markers/marker_list.rds")
   meta_data  <- exist_list[[length(exist_list)]]
   exist_list <- lapply(exist_list[-length(exist_list)], function(x){
     x <- x[!is.na(x)]
