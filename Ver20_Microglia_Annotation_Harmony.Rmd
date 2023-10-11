@@ -381,7 +381,7 @@ seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA 
 
 ```{r Dimred and PC selection}
 ver = FALSE
-set.seed(2023)
+set.seed(2024)
 # Normalize, scale and run PCA on the seurat object
 seurat_combi <- seurat_combi %>%  
     NormalizeData(verbose = ver) %>%
