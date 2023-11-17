@@ -43,8 +43,10 @@ library(sechm)
 library(pheatmap)
 })
 
+knitr::opts_chunk$set(echo = FALSE)
+
 data_path <- "/Users/jiesun/Storage/Work/Projects/PAST/Microglial_annotation/Data"
-working_path <- "/Users/jiesun/Storage/Work/Projects/Microglial_annotation/Microglial-annotation"
+working_path <- "/Users/jiesun/Storage/Work/Projects/PAST/Microglial_annotation/Microglial-annotation"
 # setwd(working_path)
 ```
 
@@ -444,14 +446,14 @@ Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal
 
 Here we plot the heatmap for all the marker genes found in the dataset, regardless of their expression level.
 ```{r Loading the marker gene lists}
-old_way_loading = FALSE
+old_way_loading = TRUE
 
 if (old_way_loading){
   
   # Import list of marker genes 
-  marker_list <- readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[-10]
+  marker_list <- readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[-8]
   
-  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[10])
+  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[8])
   meta_data <- unlist(data.table::tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 2))
   names(meta_data) <- unlist(tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 1))
   meta_data <- meta_data[!is.na(meta_data)]
@@ -614,7 +616,7 @@ if (saving == TRUE){
   plot.new()
   print(hmLabelAuto)
   plot.new()
-  print(hmLabelCalis)
+  print(hmLabelCali)
   plot.new()
   dev.off()
 }
@@ -622,16 +624,16 @@ if (saving == TRUE){
 ```
 
 ```{r show heatmap rownames of ATM DAM IRM}
-(heatmap_cluIRM <- plotSpecificHeatmap(sce_cluster, exist_list, "IRM"))
-(heatmap_cluATMDAM <- plotSpecificHeatmap(sce_cluster, exist_list, c("ATM","DAM")))
-(heatmap_labATMDAM <- plotSpecificHeatmap(sce_labelAuto, exist_list, c("ATM","DAM")))
+#(heatmap_cluIRM <- plotSpecificHeatmap(sce_cluster, exist_list, "IRM"))
+#(heatmap_cluATMDAM <- plotSpecificHeatmap(sce_cluster, exist_list, c("ATM","DAM")))
+#(heatmap_labATMDAM <- plotSpecificHeatmap(sce_labelAuto, exist_list, c("ATM","DAM")))
 
-if (saving == TRUE){
-  pdf(file.path(working_path, "Visualization/DAM_IRM_ITM_name.pdf"), width = 15, height = 15)
-  print(heatmap_showrowname_1)
-  print(heatmap_showrowname_2)
-  dev.off()
-}
+#if (saving == TRUE){
+#  pdf(file.path(working_path, "Visualization/DAM_IRM_ITM_name.pdf"), width = 15, height = 15)
+#  print(heatmap_showrowname_1)
+#  print(heatmap_showrowname_2)
+#  dev.off()
+#}
 ```
 
 ```{r Sankey Diagram between cluster and label}
@@ -808,11 +810,11 @@ presentMarker <- c("Trem2","Cd33","Apoe","Sorl1","Mef2c","Spp1","Il1rap","H2-Eb1
 
 (presentHeatmap <- plotMarkerList(countObject = sce_labelCali, feature_list = presentMarker, 
                                  plot_type = "Htm", group_var = "orig.ident"))
-presentVln <- VlnPlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols = pal_simpsons()(16),pt.size = 0, ncol = 10) 
-presentRdg <- RidgePlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols =  pal_simpsons()(16), ncol = 10) 
+presentVln <- VlnPlot(seurat_combi, features = presentMarker, group.by = "orig.ident", cols = pal_simpsons()(16),pt.size = 0, ncol = 10) 
+presentRdg <- RidgePlot(seurat_combi, features = presentMarker, group.by = "orig.ident", cols =  pal_simpsons()(16), ncol = 10) 
 
 if (saving == TRUE) {
-  pdf("Visualization/Marker_Vln_ident.pdf", width = 24, height = 20)
+  pdf("Visualization/Marker_Vln_ident.pdf", width = 30, height =18)
   print(presentVln)
   print(presentRdg)
   dev.off()
