@@ -31,5 +31,5 @@ For annotating scRNA-seq data for microglial cells
 
 6. Subsequent visulization of barplot (in case of larger sample sizes), vlnplot (expression profile), and ridgeplot (similar comparision data)
 
-<img width="559" alt="image" src="https://user-images.githubusercontent.com/91852421/229557440-a6cab9f1-5302-4d0e-b578-7a1817166b61.png">
+<img width="594" alt="P11_UMAP_AllCases" src="https://github.com/Jieran-S/Microglial-annotation/assets/91852421/e31ea752-a835-401a-9a12-6fb94d6f0be5">
 
