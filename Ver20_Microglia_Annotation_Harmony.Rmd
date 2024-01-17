@@ -71,7 +71,7 @@ saving = FALSE
 plotDataComposition <- function(seruatObject, classLabel, dataLabel, colorOption = "G") {
   ca <- data.table(table(cluster=unlist(seruatObject[[classLabel]]), 
                    sample=unlist(seruatObject[[dataLabel]])))
-  ca[, percent := 100*(N/sum(N)), by = sample]
+  ca[, percent := 100*(N/sum(N)), by = sample][, cluster := as.factor(cluster)]
   
   plot_cluster_comp <- ggplot(as.data.frame(ca), aes(sample, cluster, fill=percent)) + 
     geom_tile() + 
@@ -423,7 +423,8 @@ seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs,
 seurat_combi <- FindClusters(seurat_combi, resolution = 0.6, verbose = ver) # used to be 0.5
 
 # Run UMAP based on the clsuter information
-seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, verbose = ver)
+seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, 
+                        verbose = ver)
 ``` 
 
 ```{r UMAP plots for clustering data}
@@ -439,7 +440,7 @@ Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal
 ```
 
 ```{r Find the percentile composition of conditions in each clusters}
-(plot_clusterComp <- plotDataComposition(seruatObject = seurat_combi, classLabel = "seurat_clusters", dataLabel = "orig.ident"))
+(plot_clusterComp <- plotDataComposition(seruatObject = seurat_combi, classLabel = "seurat_clusters", dataLabel = "orig.ident") + theme_minimal())
 ```
 
 ## Import marker gene list
@@ -497,7 +498,10 @@ seurat_markers <- Seurat::FindAllMarkers(seurat_combi, min.pct = 0.2, test.use =
 
 ```{r Set up sce object}
 # Create SingleCellExperiment object for easier manipulation
-logcounts <- GetAssayData(seurat_combi)
+loA <- list(WT = LayerData(seurat_combi, "data.WT"), 
+            G1 = LayerData(seurat_combi, "data.GpnmbKO_1"), 
+            G2 = LayerData(seurat_combi, "data.GpnmbKO_2"))
+logcounts <- Reduce(cbind, loA[-1], loA[[1]])
 seurat_sce <- SingleCellExperiment(assays = logcounts, 
                                    colData = seurat_combi@meta.data, 
                                    rowData = rownames(seurat_combi))
@@ -550,28 +554,19 @@ label_auto <- paste0(cellType_auto, " (", colnames(sce_cellType), ")")
 ```{r Manually clalibrate the labels}
 # After tuning the results, need to change every time you change some parameters
 cellType_calibrated <- cellType_auto
-if (rb == 15 & mt == 7) {
-  # clustering resolution 0.6
-  cellType_calibrated[c(8,9)] <- if (acronym==TRUE) c("IFM-I", "IFM-II") else 
-                                      c("Inflammatory microglia-I", "Inflammatory microglia-II")
-  cellType_calibrated[c(3)]   <- if (acronym==TRUE) c("PAM") else c("Pre-active microglia")
 
-} else if (rb == 10 & mt == 7 | rb == 10 & mt == 5) {
-  cellType_calibrated[c(9,10)] <- if (acronym==TRUE) c("IFM-I", "IFM-II") else 
-                                      c("Inflammatory microglia-I", "Inflammatory microglia-II")
-  cellType_calibrated[c(4)]   <- if (acronym==TRUE) c("PAM") else c("Pre-active microglia")
-  cellType_calibrated[c(5)]   <- if (acronym==TRUE) c("DAM") else c("Disease-Associated Microglia")
-  cellType_calibrated[c(12)]  <- if (acronym==TRUE) c("SAM") else c("Senescence-associated microglia")
-
-}
+# clustering resolution 0.6
+cellType_calibrated[c("8", "9")] <- if (acronym==TRUE) c("IFM-I", "IFM-II") else 
+                                    c("Inflammatory microglia-I", "Inflammatory microglia-II")
+cellType_calibrated[c("2", "6")]   <- if (acronym==TRUE) c("PAM") else c("Pre-active microglia")
 
 label_calibrated <- paste0(cellType_calibrated, " (", colnames(sce_cellType), ")")
 ```
 
 ```{r Create new sce object for cell-type-based heatmap generation}
 # we convert the cells' cluster labels to cell type labels:
-seurat_sce$label_auto <- cellType_auto[seurat_sce$seurat_clusters]
-seurat_sce$label_cali <- cellType_calibrated[seurat_sce$seurat_clusters]
+seurat_sce$label_auto <- cellType_auto[seurat_sce$seurat_clusters] %>% as.character()
+seurat_sce$label_cali <- cellType_calibrated[seurat_sce$seurat_clusters] %>% as.character()
 
 # we aggregate again to pseudo-bulk using the new clusters
 sce_labelAuto <- aggregateData(seurat_sce, "logcounts", by=c("label_auto"), fun="mean")
@@ -582,8 +577,8 @@ assayNames(sce_labelCali) <- "logcounts"
 ```
 
 ```{r Assign labels to Seurat object for final visualization}
-seurat_combi$label_auto <- cellType_auto[seurat_sce$seurat_clusters]
-seurat_combi$label_calibrated <- cellType_calibrated[seurat_sce$seurat_clusters]
+seurat_combi$label_auto <- as.character(cellType_auto[seurat_sce$seurat_clusters])
+seurat_combi$label_calibrated <- as.character(cellType_calibrated[seurat_sce$seurat_clusters])
 
 if (saving){
   saveRDS(seurat_combi, "Annotated_seurat_harmony.rds")
@@ -594,7 +589,7 @@ if (saving){
 plot_labelAuto <- DimPlot(seurat_combi, group.by = "label_auto",pt.size = 0.3, cols = pal_npg("nrc")(10), label = TRUE) + 
   plot_annotation(title="Automatic cluster labels") + NoAxes()
 
-plot_labelCali <- DimPlot(seurat_combi, group.by = "label_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12), label = TRUE) + 
+plot_labelCali <- DimPlot(seurat_combi, group.by = "label_calibrated",pt.size = 0.3, cols = pal_futurama("planetexpress")(12)[-c(1)], label = TRUE) + 
   plot_annotation(title="Calibrated cluster labels") + NoAxes()
 
 (plot_UMAPlabel <- plot_labelAuto + plot_labelCali)
@@ -650,7 +645,7 @@ nodes <- data.frame(
 links$IDsource <- match(links$source, nodes$name)-1 
 links$IDtarget <- match(links$target, nodes$name)-1
 
-my_color <- "d3.scaleOrdinal() .domain([' Cluster_0 ',' Cluster_1 ',' Cluster_2 ',' Cluster_3 ',' Cluster_4 ',' Cluster_5 ',' Cluster_6 ',' Cluster_7 ',' Cluster_8 ',' Cluster_9 ',' Cluster_10 ',' Cluster_11 ',' CAM ',' Cell_Cycle ',' DAM ',' HSM ',' IFM-I ',' IFM-II ',' PAM ',' SAM ']) .range([' #FED439FF ',' #709AE1FF ',' #8A9197FF ',' #D2AF81FF ',' #FD7446FF ',' #D5E4A2FF ',' #197EC0FF ',' #F05C3BFF ',' #46732EFF ',' #71D0F5FF ',' #370335FF ',' #075149FF ',' #FF6F00FF ',' #C71000FF ',' #008EA0FF ',' #8A4198FF ',' #5A9599FF ',' #FF6348FF ',' #84D7E1FF ',' #FF95A8FF '])"
+my_color <- "d3.scaleOrdinal() .domain([' Cluster_0 ',' Cluster_1 ',' Cluster_2 ',' Cluster_3 ',' Cluster_4 ',' Cluster_5 ',' Cluster_6 ',' Cluster_7 ',' Cluster_8 ',' Cluster_9 ',' Cluster_10 ',' Cluster_11 ',' CAM ',' Cell_Cycle ',' DAM ',' HSM ',' IFM-I ',' IFM-II ',' PAM ',' WAM ']) .range([' #FED439FF ',' #709AE1FF ',' #8A9197FF ',' #D2AF81FF ',' #FD7446FF ',' #D5E4A2FF ',' #197EC0FF ',' #F05C3BFF ',' #46732EFF ',' #71D0F5FF ',' #370335FF ',' #C71000FF ',' #075149FF  ',' #008EA0FF ',' #8A4198FF ',' #5A9599FF ',' #FF6348FF ',' #84D7E1FF ',' #FF95A8FF ',' #3F4041FF '])"
 
 
 (sankeyGraph <- sankeyNetwork(Links = links, Nodes = nodes,
@@ -668,7 +663,7 @@ topMatClu <- findTopGenes(sce_cluster, markerlist = exist_list)
 topMatLab <- findTopGenes(sce_labelCali, markerlist = exist_list)
 
 if (saving == TRUE) {
-  write.csv(top_matrix, file.path(working_path,sprintf("TOP_%s_gene_per_matrix.csv", top_number)))
+  write.csv(topMatLab, file.path(working_path,sprintf("TOP_%s_gene_per_matrix.csv", top_number)))
 }
 ```
 
@@ -810,16 +805,16 @@ presentMarker <- c("Trem2","Cd33","Apoe","Sorl1","Mef2c","Spp1","Il1rap","H2-Eb1
 
 (presentHeatmap <- plotMarkerList(countObject = sce_labelCali, feature_list = presentMarker, 
                                  plot_type = "Htm", group_var = "orig.ident"))
-presentVln <- VlnPlot(seurat_combi, features = presentMarker, group.by = "orig.ident", cols = pal_simpsons()(16),pt.size = 0, ncol = 10) 
-presentRdg <- RidgePlot(seurat_combi, features = presentMarker, group.by = "orig.ident", cols =  pal_simpsons()(16), ncol = 10) 
+presentVln <- VlnPlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols = pal_simpsons()(16),pt.size = 0, ncol = 7) 
+presentRdg <- RidgePlot(seurat_combi, features = presentMarker, group.by = "label_calibrated", cols =  pal_simpsons()(16), ncol = 7) 
 
 if (saving == TRUE) {
-  pdf("Visualization/Marker_Vln_ident.pdf", width = 30, height =18)
+  pdf("Visualization/Marker_Vln_labCal.pdf", width = 30, height =18)
   print(presentVln)
   print(presentRdg)
   dev.off()
 
-  pdf("Visualization/Marker_Rdg_ident.pdf", width = 30, height = 8)
+  pdf("Visualization/Marker_Rdg_labCal.pdf", width = 30, height = 8)
   print(presentRdg)
   dev.off()  
 }
