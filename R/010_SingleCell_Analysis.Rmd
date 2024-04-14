@@ -45,8 +45,8 @@ library(pheatmap)
 
 knitr::opts_chunk$set(echo = FALSE)
 
-data_path <- "/Users/jiesun/Storage/Work/Projects/PAST/Microglial_annotation/Data"
-working_path <- "/Users/jiesun/Storage/Work/Projects/PAST/Microglial_annotation/Microglial-annotation"
+data_path <- "../Data"
+working_path <- getwd()
 # setwd(working_path)
 ```
 
@@ -423,7 +423,8 @@ seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs,
 seurat_combi <- FindClusters(seurat_combi, resolution = 0.6, verbose = ver) # used to be 0.5
 
 # Run UMAP based on the clsuter information
-seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, verbose = ver)
+seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, 
+                        verbose = ver)
 ``` 
 
 ```{r UMAP plots for clustering data}
@@ -582,8 +583,8 @@ assayNames(sce_labelCali) <- "logcounts"
 ```
 
 ```{r Assign labels to Seurat object for final visualization}
-seurat_combi$label_auto <- cellType_auto[seurat_sce$seurat_clusters]
-seurat_combi$label_calibrated <- cellType_calibrated[seurat_sce$seurat_clusters]
+seurat_combi$label_auto <- as.character(cellType_auto[seurat_sce$seurat_clusters])
+seurat_combi$label_calibrated <- as.character(cellType_calibrated[seurat_sce$seurat_clusters])
 
 if (saving){
   saveRDS(seurat_combi, "Annotated_seurat_harmony.rds")

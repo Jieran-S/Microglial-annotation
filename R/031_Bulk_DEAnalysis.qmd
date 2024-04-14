@@ -1,0 +1,300 @@
+---
+title: "Bulk-Seq Analysis for Microglial cells"
+author: "Jieran Sun"
+format: html
+editor: visual
+---
+
+## Loading libraries
+
+```{r set up, include=FALSE}
+suppressPackageStartupMessages({
+  library(data.table)
+  library(edgeR)
+  library(org.Mm.eg.db)
+  library(DESeq2)
+  library(ggplot2)
+  library(ggrepel)
+})
+```
+
+## Load data
+
+```{r}
+dt <- fread("~/Microglial/Data/231124_SuzanneWolf_feature_counts")
+geneDF <- dt[, 1, drop=FALSE]
+countDF <- as.data.frame(dt[, 7:ncol(dt)])
+
+sampleID <- gsub("./output/star_salmon/", "", colnames(countDF), fixed = TRUE)
+sampleID <- gsub(".markdup.sorted.bam", "", sampleID, fixed = TRUE)
+colnames(countDF) <- sampleID
+rownames(countDF) <- geneDF$Geneid
+
+group <- rep(c("KO", "WT"), each = 5)
+group <- as.factor(group)
+names(group) <- sampleID
+```
+
+```{r construct DGE list object for DE-seq analysis}
+y <- DGEList(counts = countDF, 
+             group = group, 
+             genes = geneDF)
+
+# Adding gene labels
+y$genes$Symbol <- mapIds(org.Mm.eg.db, rownames(y),
+                          keytype="ENSEMBL", column="SYMBOL")
+# Filter our non-symbol genes
+y <- y[!is.na(y$genes$Symbol), ]
+
+# Try removing 1 sample (28)
+# y <- y[, colnames(y)!="SBR_F49_0028_P22_V11"]
+# group <- group[-8]
+
+# Try removing the KO genes
+# y <- y[y$genes$Symbol != "Gpnmb",]
+```
+
+## Quality Control
+
+Quality control: Percentage of sequencing mapped to the genome
+
+```{r make design matrix}
+design <-model.matrix(~0+group)
+colnames(design) <- levels(group)
+design
+```
+
+```{r let's see its expression value before filtering}
+AveLogCPM <- aveLogCPM(y)
+hist(AveLogCPM)
+```
+
+```{r filter expression}
+keep <- filterByExpr(y, design)
+y <- y[keep, , keep.lib.sizes=FALSE]
+table(keep)
+```
+
+```{r now check the cpm after filtering}
+AveLogCPM <- aveLogCPM(y)
+hist(AveLogCPM)
+```
+
+## Differential Analysis
+
+```{r normal cases}
+matSave <- y$counts
+rownames(matSave) <- make.names(y$genes$Symbol, unique = TRUE)
+
+y$samples$random <- rep(c("group1", "group2"), 5)
+
+dds <- DESeqDataSetFromMatrix(countData = matSave,
+                              colData = y$samples,
+                              design= ~ group)
+dds <- DESeq(dds)
+
+res <- results(dds, name="group_WT_vs_KO")
+# or to shrink log fold changes association with condition:
+res <- lfcShrink(dds, coef="group_WT_vs_KO", type="apeglm")
+```
+
+```{r random cases}
+dds_rand <- DESeqDataSetFromMatrix(countData = matSave,
+                              colData = y$samples,
+                              design= ~ random)
+dds_rand <- DESeq(dds_rand)
+
+res_rand <- results(dds_rand, name="random_group2_vs_group1")
+# or to shrink log fold changes association with condition:
+res_rand <- lfcShrink(dds_rand, coef="random_group2_vs_group1", type="apeglm")
+```
+
+```{r subset cases}
+y_sub <- y[, c("SBR_F49_0022_P22_V11", "SBR_F49_0024_P22_V11", "SBR_F49_0025_P22_V11", "SBR_F49_0026_P22_V11", "SBR_F49_0028_P22_V11", "SBR_F49_0029_P22_V11")]
+
+matSave <- y_sub
+rownames(matSave) <- make.names(y_sub$genes$Symbol, unique = TRUE)
+
+y_sub$samples$group <- rep(c("group1", "group2"), each=3)
+
+dds_sub <- DESeqDataSetFromMatrix(countData = matSave,
+                              colData = y_sub$samples,
+                              design= ~ group)
+dds_sub <- DESeq(dds_sub)
+
+res_sub <- results(dds_sub, name="group_group2_vs_group1")
+# or to shrink log fold changes association with condition:
+res_sub <- lfcShrink(dds_sub, coef="group_group2_vs_group1", type="apeglm")
+```
+
+## Visualization: Random
+
+```{r MA plot random}
+resDF_rand <- as.data.frame(res_rand)
+resDF_rand <- resDF_rand[!is.na(resDF_rand$padj), ]
+resDF_rand$Symbol <- rownames(resDF_rand)
+
+maPlotDESeq_rand <- ggplot(resDF_rand, aes(x = baseMean, y = log2FoldChange)) + 
+  geom_point(aes(color = padj < 0.05)) + 
+  #geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF_rand[resDF_rand$baseMean > 4 & abs(resDF_rand$log2FoldChange) > 1, ], 
+                  aes(x = baseMean, y = log2FoldChange, label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) +
+  theme_bw()
+
+maPlotDESeq_rand
+```
+
+```{r volcano plot random}
+resDF_rand$isDEG <- resDF_rand$padj < 0.05
+
+volPlotDESeq_rand <- ggplot(resDF_rand, aes(x = log2FoldChange, y = -log10(padj))) + 
+  geom_point(aes(color = isDEG)) + 
+  geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF_rand[resDF_rand$padj < 0.05 & abs(resDF_rand$log2FoldChange) > 0.2, ], 
+                  aes(x = log2FoldChange, y = -log10(padj), label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) 
+
+volPlotDESeq_rand
+```
+
+```{r DESeq barplot}
+keyGenes_rand <- as.data.table(resDF_rand)[order(padj), Symbol][1:8] #[-5]
+
+keyGeneDT_rand <- as.data.table(y$counts[y$genes$Symbol %in% keyGenes_rand, ], keep.rownames = "gene")[, gene := y$genes[gene, "Symbol"]]
+keyGeneDT_rand <- melt(keyGeneDT_rand, id.vars = "gene", variable.name = "sample", value.name = "counts")[, group := group[sample]][, gene := factor(gene, levels = keyGenes_rand)][]
+
+bp_rand <- ggplot(keyGeneDT_rand, aes(x = "gene", y = counts, fill = group)) + 
+  geom_boxplot(outlier.alpha = 0) + geom_jitter(aes(color = group), alpha = 0.5) + 
+  facet_wrap(~gene, nrow = 1) + 
+  theme_minimal() + 
+  theme(axis.title.x = element_blank())
+
+bp_rand
+```
+
+## Visualization: Subset
+
+```{r MA plot}
+resDF_sub <- as.data.frame(res_sub)
+resDF_sub <- resDF_sub[!is.na(resDF_sub$padj), ]
+resDF_sub$Symbol <- rownames(resDF_sub)
+
+maPlotDESeq_sub <- ggplot(resDF_sub, aes(x = baseMean, y = log2FoldChange)) + 
+  geom_point(aes(color = padj < 0.05)) + 
+  #geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF_sub[resDF_sub$baseMean > 4 & abs(resDF_sub$log2FoldChange) > 1, ], 
+                  aes(x = baseMean, y = log2FoldChange, label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) +
+  theme_bw()
+
+maPlotDESeq_sub
+```
+
+
+```{r volcano plot}
+resDF_sub$isDEG <- resDF_sub$padj < 0.05
+
+volPlotDESeq_sub <- ggplot(resDF_sub, aes(x = log2FoldChange, y = -log10(padj))) + 
+  geom_point(aes(color = isDEG)) + 
+  geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF_sub[resDF_sub$padj < 0.05 & abs(resDF_sub$log2FoldChange) > 0.2, ], 
+                  aes(x = log2FoldChange, y = -log10(padj), label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) 
+
+volPlotDESeq_sub
+```
+
+```{r DESeq barplot}
+keyGenes_sub <- as.data.table(resDF_sub)[order(padj), Symbol][1:8] #[-5]
+
+keyGeneDT_sub <- as.data.table(y$counts[y$genes$Symbol %in% keyGenes_sub, ], keep.rownames = "gene")[, gene := y$genes[gene, "Symbol"]]
+keyGeneDT_sub <- melt(keyGeneDT_sub, id.vars = "gene", variable.name = "sample", value.name = "counts")[, group := group[sample]][, gene := factor(gene, levels = keyGenes_sub)][]
+
+bp_sub <- ggplot(keyGeneDT_sub, aes(x = "gene", y = counts, fill = group)) + 
+  geom_boxplot(outlier.alpha = 0) + geom_jitter(aes(color = group), alpha = 0.5) + 
+  facet_wrap(~gene, nrow = 1) + 
+  theme_minimal() + 
+  theme(axis.title.x = element_blank())
+
+bp_sub
+```
+
+## DEseq: All
+
+```{r quick run of DESeq2}
+matSave <- y$counts
+rownames(matSave) <- make.names(y$genes$Symbol, unique = TRUE)
+
+dds <- DESeqDataSetFromMatrix(countData = matSave,
+                              colData = y$samples[, "group", drop=FALSE],
+                              design= ~ group)
+dds <- DESeq(dds)
+
+res <- results(dds, name="group_WT_vs_KO")
+# or to shrink log fold changes association with condition:
+res <- lfcShrink(dds, coef="group_WT_vs_KO", type="apeglm")
+```
+
+```{r MA plot}
+resDF <- as.data.frame(res)
+resDF <- resDF[!is.na(resDF$padj), ]
+resDF$Symbol <- rownames(resDF)
+
+maPlotDESeq <- ggplot(resDF, aes(x = baseMean, y = log2FoldChange)) + 
+  geom_point(aes(color = padj < 0.05)) + 
+  #geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF[resDF$baseMean > 4 & abs(resDF$log2FoldChange) > 1, ], 
+                  aes(x = baseMean, y = log2FoldChange, label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) +
+  theme_bw()
+
+maPlotDESeq
+```
+
+
+```{r volcano plot}
+resDF <- as.data.frame(res)
+resDF <- resDF[!is.na(resDF$padj), ]
+resDF$Symbol <- rownames(resDF)
+resDF$isDEG <- resDF$padj < 0.05
+
+volPlotDESeq <- ggplot(resDF, aes(x = log2FoldChange, y = -log10(padj))) + 
+  geom_point(aes(color = isDEG)) + 
+  geom_hline(yintercept = -log10(0.05)) + 
+  geom_text_repel(data=resDF[resDF$padj < 0.05 & abs(resDF$log2FoldChange) > 0.2, ], 
+                  aes(x = log2FoldChange, y = -log10(padj), label = Symbol)) + 
+  scale_color_manual(values = c("grey", "blue")) 
+
+volPlotDESeq
+```
+
+```{r DESeq barplot}
+keyGenes <- as.data.table(resDF)[padj < 0.05, ][order(padj), Symbol] #[-5]
+
+keyGeneDT <- as.data.table(y$counts[y$genes$Symbol %in% keyGenes, ], keep.rownames = "gene")[, gene := y$genes[gene, "Symbol"]]
+keyGeneDT <- melt(keyGeneDT, id.vars = "gene", variable.name = "sample", value.name = "counts")[, group := group[sample]][, gene := factor(gene, levels = keyGenes)][]
+
+bp <- ggplot(keyGeneDT, aes(x = "gene", y = counts, fill = group)) + 
+  geom_boxplot(outlier.alpha = 0) + geom_jitter(aes(color = group), alpha = 0.5) + 
+  facet_wrap(~gene, nrow = 1) + 
+  theme_minimal() + 
+  theme(axis.title.x = element_blank())
+
+bp
+```
+
+## Epilog
+
+
+```{r save data}
+matSave <- y$counts
+rownames(matSave) <- make.names(y$genes$Symbol, unique = TRUE)
+write.csv2(matSave, "~/Microglial/Data/filteredCounts.csv")
+```
+
+
+```{r check information}
+sessionInfo()
+```
+

@@ -1,0 +1,77 @@
+---
+title: "Bulk-Seq Analysis for Microglial cells"
+subtitle: "Deconvolution" 
+author: "Jieran Sun"
+format: html
+editor: visual
+---
+
+## Loading libraries
+
+```{r set up, include=FALSE}
+#devtools::install_github('xuranw/MuSiC')
+
+suppressPackageStartupMessages({
+  library(Matrix)
+  library(MuSiC)
+  library(data.table)
+  library(ggplot2)
+  library(viridis)
+  library(SingleCellExperiment)
+})
+```
+
+## Load data
+
+```{r load Bulk}
+# Modify your path, if the filteredCounts mtx do not exist, run 031_Bulk_Preprocessing.qmd
+bulkmtx <- read.csv2("~/Microglial/Data/filteredCounts.csv", header = TRUE, row.names = 1)
+bulkmtx <- as.matrix(bulkmtx)
+
+group <- rep(c("KO", "WT"), each = 5)
+group <- as.factor(group)
+names(group) <- colnames(bulkmtx)
+```
+
+```{r single cell}
+# Modify your path
+sce <- readRDS("~/Microglial/Data/Annotated_sce.rds")
+```
+
+## Deconvolution
+
+
+```{r deconvolution}
+# Marker list 
+markers <- readxl::read_xlsx("~/Microglial/Microglial-annotation/Markers/Marker_list_BU.xlsx")
+markers <- unlist(markers[, -ncol(markers)])
+markers <- markers[!is.na(markers)]
+
+Deconv <- music_prop(bulk.mtx = bulkmtx,
+                     # bulk.control.mtx = bulkmtx[,6:10],
+                     sc.sce = sce, 
+                     markers = markers,
+                     clusters = 'label_calibrated',
+                     samples = 'orig.ident',
+                     select.ct = c("DAM", "HSM", "PAM", "IFM", "IFM-I", "IFM-II", "WAM","Cell_Cycle"), 
+                     verbose = FALSE)
+```
+
+```{r visualization of proportion}
+DeconMtx <- as.data.table(Deconv$Est.prop.weighted, keep.rownames="sample")
+DeconMtx <- melt(DeconMtx, id.vars = "sample", variable.name = "cell_type", value.name = "proportion")
+
+# heatmap(DeconMtx, Rowv = NA, keep.dendro=FALSE) 
+
+plot_cluster_comp <- ggplot(as.data.frame(DeconMtx), aes(cell_type, sample, fill=proportion)) + 
+  geom_tile() + 
+  scale_fill_gradientn(colors = viridis_pal(option = "G", end = 0.95, direction = -1)(10)) +
+  geom_text(aes(label= round(proportion*100, digits = 2)) , color = "white") + 
+  coord_fixed(ratio = 0.25) + 
+  theme_minimal()
+  #guides(fill = guide_colourbar(barwidth = 0.5,barheight = 20))
+
+plot_cluster_comp
+```
+
+
