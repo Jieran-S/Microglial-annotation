@@ -1,0 +1,178 @@
+---
+title: "Seurat Clustering"
+format: html
+editor: source
+---
+# Preamble
+
+## Dependencies
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+library(Seurat)
+library(harmony)
+library(dplyr) 
+library(ggplot2)
+library(ggsci)
+library(viridis)
+library(patchwork)
+library(Matrix)
+})
+
+knitr::opts_chunk$set(echo = FALSE)
+
+data_path <- "../Data"
+```
+
+```{r Do you want to save all data}
+SAVING = TRUE
+```
+
+# Loading data
+
+```{r Import data and assigining mt and rb features}
+# three different samples: 100-WT, 101 - GpnmbKO, 102-GpnmbKO)
+seurat_list <- lapply(list.files( data_path, pattern = "*.h5", full.name =TRUE), 
+  function(file){
+    file_ind <- which(list.files( data_path, pattern = "*.h5", full.name =TRUE) == file)
+    seurat_object <- Seurat::Read10X_h5(file , use.names = TRUE, unique.features = TRUE) %>% 
+      CreateSeuratObject(project = c("WT", "GpnmbKO_1", "GpnmbKO_2")[file_ind], min.cells = 3, min.features = 200)
+    seurat_object$stim <- sprintf("cond%s", file_ind-1)
+    seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^mt-")
+    seurat_object[["percent.rb"]] <- PercentageFeatureSet(seurat_object, pattern = "^Rp[sl]")
+    seurat_object
+})
+```
+
+
+```{r filtering out artificial batch effects and merge}
+# Leaving only the intersected genes
+seurat_list <- lapply(seurat_list, function(x) rownames(x)) %>% 
+  {Reduce(intersect, .)} %>%
+  {lapply(seurat_list, function(x) x[.,])}
+
+# Roughly merged the genes together
+seurat_combi <- merge(seurat_list[[1]], seurat_list[-1], project = "CombinedSeurat") 
+rm(seurat_list)
+```
+
+# QC
+
+```{r plot the overall violin plots}
+(VP_Overall <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        group.by = "orig.ident", cols = pal_npg("nrc")(9),
+        ncol = 4, pt.size = 0) + xlab("conditions") )
+```
+
+```{r QC on mt and rb gene percentage}
+# QC processing (remove ribosome and mitochrondial RNA)
+# try 7 next time? rb was 10 now 15
+mt <- 7
+rb <- 15
+seurat_combi <- subset(seurat_combi, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < mt & percent.rb < rb ) 
+
+# Recheck the violin plot after QC
+(VP_afterQC <- VlnPlot(seurat_combi, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), 
+        group.by = "orig.ident", cols = pal_npg("nrc")(9),
+        ncol = 4, pt.size = 0) + xlab("conditions"))
+```
+
+# Preprocessing
+
+```{r Dimred and PC selection}
+ver = FALSE
+set.seed(2024)
+# Normalize, scale and run PCA on the seurat object
+seurat_combi <- seurat_combi %>%  
+    NormalizeData(verbose = ver) %>%
+    FindVariableFeatures(nfeatures = 3000, verbose = ver)  %>%
+    ScaleData(verbose = ver) %>%
+    RunPCA(npcs = 50, verbose = ver)
+
+#' Select essential PCs for clustering 
+#' PC is selected based on 2 criteria, either the no. of pcs can already 
+#' expalined 80% of the variables and the current one falls under 5%, or 
+#' the acculumated change in the variance explained in PC fall under 0.1%
+
+pct <- seurat_combi[["pca"]]@stdev / sum(seurat_combi[["pca"]]@stdev) * 100
+choice1 <- which(cumsum(pct) > 80 & pct < 5)[1]
+choice2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1 & cumsum(pct) > 60 ), decreasing = T)[1] + 1
+pcs <- min(choice1, choice2, 40)
+
+# Plot an elbow plot to visualize the selection (Sanity check)
+Seurat::ElbowPlot(seurat_combi, ndims= 50) + ylab("variance explained (%)") +
+                geom_point(x = pcs, y = seurat_combi[["pca"]]@stdev[pcs] , colour = "red") +
+                geom_label(
+                  label=sprintf("PC selected: %1.0f",pcs), 
+                  x=pcs,
+                  y=seurat_combi[["pca"]]@stdev[pcs] + 1,
+                  label.padding = unit(0.55, "lines"), # Rectangle size around label
+                  label.size = 0.35,
+                  color = "black",
+                  fill="#69b3a2")
+```
+
+# Integration & Clustering
+
+```{r clustering using harmony and run UMAP}
+set.seed(2023)
+# Run Harmony integration on the dataset, and find the clusters
+seurat_combi <- RunHarmony(seurat_combi, group.by.vars = "orig.ident", 
+                           dims.use = 1:pcs, max.iter.harmony = 50, verbose = ver)
+seurat_combi <- FindNeighbors(seurat_combi, reduction = "harmony", dims = 1:pcs, verbose = ver)
+seurat_combi <- FindClusters(seurat_combi, resolution = 0.6, verbose = ver) # used to be 0.5
+
+# Run UMAP based on the clsuter information
+seurat_combi <- RunUMAP(seurat_combi, reduction = "harmony", dims = 1:pcs, 
+                        verbose = ver)
+
+seurat_combi[["RNA"]] <- JoinLayers(seurat_combi[["RNA"]])
+``` 
+
+# Visualization
+
+```{r UMAP plots for clustering data}
+# UMAP Plot colored based on clusters
+Plot1 <- DimPlot(seurat_combi, group.by = "seurat_clusters", label = TRUE, label.color = "black", pt.size = 0.3,  cols = pal_simpsons()(16))  + plot_annotation(title="Clusters") + NoAxes()
+
+# UMAP plot colored based on data sources
+Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal_simpsons()(3)) + 
+  plot_annotation(title="Conditions") + NoAxes()
+
+# Visualize the two plots
+(plot_UMAP <- Plot1 + Plot2)
+```
+
+```{r Find the percentile composition of conditions in each clusters}
+ca <- data.frame(table(cluster=unlist(seurat_combi[["seurat_clusters"]]), 
+                 sample=unlist(seurat_combi[["orig.ident"]])))
+ca <- ca %>%
+  group_by(sample) %>%
+  mutate(percent = 100 * (Freq / sum(Freq))) %>%
+  ungroup() 
+
+plot_cluster_comp <- ggplot(as.data.frame(ca), aes(sample, cluster, fill=percent)) + 
+  geom_tile() + 
+  scale_fill_gradientn(colors = viridis_pal(option = "D", end = 0.95, direction = -1)(10)) +
+  geom_text(aes(label= round(percent, digits = 2)) , color = "white") + 
+  coord_fixed(ratio = 0.25) +
+  guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18))
+
+plot_cluster_comp
+```
+
+# Epilog
+
+```{r save Data}
+if (SAVING==TRUE){
+  saveRDS(seurat_combi, "../Data/Seurat_SingleCell.rds")
+  writeMM(LayerData(seurat_combi, "data"), "../Data/011_logNorm_SingleCell.mtx")
+  write.csv2(seurat_combi@meta.data, "../Data/011_colData_SingleCell.csv")
+  write.csv2(data.frame(genes=rownames(seurat_combi), row.names = rownames(seurat_combi)), "../Data/011_rowData_SingleCell.csv")
+  write.csv2(as.data.frame(seurat_combi[["umap"]]@cell.embeddings), "../Data/011_UMAP_SingleCell.csv")
+}
+```
+
+```{r}
+sessionInfo()
+```

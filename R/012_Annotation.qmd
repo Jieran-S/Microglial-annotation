@@ -1,0 +1,193 @@
+---
+title: "012_Annotation"
+format: html
+editor: source
+---
+
+# Preamble
+
+## Dependencies
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+library(Matrix)
+library(data.table)
+library(SingleCellExperiment)
+library(muscat)
+library(sechm)
+library(viridis)
+library(scater)
+library(patchwork)
+library(ggsci)
+})
+
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r Do you want to save all data and visualization?}
+SAVING = TRUE
+```
+
+# Loading data
+
+Loading the intermediate results from 011, mostly the matea data file and the 
+normalized data matrix.
+
+```{r load expression data}
+logNormMtx <- Matrix::readMM("../Data/011_logNorm_SingleCell.mtx")
+expColData <- read.csv2("../Data/011_colData_SingleCell.csv", row.names = 1)
+expRowData <- read.csv2("../Data/011_rowData_SingleCell.csv", row.names = 1)
+expUmap <- read.csv2("../Data/011_UMAP_SingleCell.csv", row.names = 1)
+
+sce <- SingleCellExperiment(assays = SimpleList(logcounts=logNormMtx),
+                            colData=expColData,
+                            rowData=expRowData, 
+                            reducedDims=list(umap=expUmap))
+```
+
+```{r load marker gene list}
+# Import list of marker genes 
+marker_list <- readxl::read_excel("../Markers/Marker_list_BU.xlsx")
+marker_list <- marker_list[,-ncol(marker_list)]
+
+# Filter and leave only those marker genes existed in the cluster
+exist_list <- lapply(marker_list, function(x){
+  x <- x[!is.na(x)]
+  x <- x[x %in% row.names(sce)]})
+
+# Cell type name list
+meta_data <- c(DAM="Disease-Associated Microglia", 
+               WAM="White Matter-Associated Microglia",
+               CAM="CNS-Associated Macrophages",
+               IFM="Inflammatory Microglia",           
+               PGM="Phagocytic Microglia",
+               HSM="Homeostatic Microglia",
+               Cell_Cycle="Cell Cycle",                
+               SAM="Senescence-Associated Microglia",
+               PAM="Pre-active Microglia")
+```
+
+
+# Pseudo-bulk Marker Gene analysis
+
+```{r }
+# Find the average expression of each gene in each cluster
+sce_cluster <- muscat::aggregateData(sce, "logcounts", by=c("seurat_clusters"), fun="mean")
+SummarizedExperiment::assayNames(sce_cluster) <- "logcounts"
+
+# Assign a new metadata called cell type to assign the markers on them
+rowData(sce_cluster)$cellType <- NA
+rowData(sce_cluster)[unlist(exist_list),"cellType"] <- rep(names(exist_list),lengths(exist_list))
+```
+
+```{r plot the heatmap to show the cell expression level}
+# Visualizing the heatmap data of the expression value
+sechm::sechm(sce_cluster, unlist(exist_list), 
+           assayName = "logcounts", gaps_row = "cellType", gaps_at = NULL,
+           show_colnames = TRUE, do.scale = TRUE, na_col = "black",
+           breaks=1, row_title_rot=0, show_rownames = TRUE, 
+           hmcols = viridis_pal(option = "C")(100))
+
+```
+
+
+```{r Summarize cell type expression based on average gene expression}
+# Return average expression of genes in each cell type in each cluster
+sce_cellType <- assay(sce_cluster)[unlist(exist_list),]
+sce_cellType <- aggregate(t(scale(t(sce_cellType))), 
+                 by=list(type=rep(names(exist_list), lengths(exist_list))), 
+                 FUN=mean)
+sce_cellType <- as.data.table(sce_cellType)
+
+# for each column (cluster), we select the row (cell type) which has the maximum aggregated value
+top_number <- 4
+sce_cellType <- sce_cellType[, lapply(.SD, function(x){
+                            Best_n <- sort(x, index.return=TRUE, decreasing=TRUE)
+                            type[Best_n$ix[1:top_number]]
+                          }), .SDcols = colnames(sce_cellType)[-1]]
+sce_cellType
+```
+
+
+```{r Assigning cell type labels}
+# Assign automatic cell type based on the highest expressed gene
+cellType_auto <- unlist(sce_cellType[1,])
+
+cellType_auto
+
+# Manually curated the labels based on discussions
+cellType_calibrated <- cellType_auto
+# PAM 
+cellType_calibrated[c("2", "6")] <- c("PAM-I", "PAM-II")
+# HSM
+cellType_calibrated[c("0", "5")] <- "HSM-I"
+cellType_calibrated[c("4")] <- "HSM-II"
+# DAM
+cellType_calibrated[c("1", "3")] <- c("DAM-I", "DAM-II")
+# IFM
+cellType_calibrated[c("8", "9")] <- c("IFM-I", "IFM-II")
+
+cellType_calibrated
+```
+
+# Quick Visualization
+
+```{r Create new sce object for cell-type-based heatmap generation}
+# we convert the cells' cluster labels to cell type labels:
+sce$label_auto <- cellType_auto[as.character(sce$seurat_clusters)]
+sce$label_cali <- cellType_calibrated[as.character(sce$seurat_clusters)]
+
+plotAuto <- plotReducedDim(sce, "umap", colour_by = "label_auto", 
+                           text_by="label_auto", point_size=0.3) + 
+  scale_color_manual(values = pal_futurama("planetexpress")(12))
+plotCali <- plotReducedDim(sce, "umap", colour_by = "label_cali", 
+                           text_by="label_cali", point_size=0.3)  + 
+  scale_color_manual(values = pal_simpsons()(16))
+
+plotAuto + plotCali
+```
+
+```{r}
+sce$treatment <- ifelse(sce$orig.ident=="WT", "WT", "GpnmbKO")
+
+
+ca <- data.table(table(cluster=unlist(sce$label_cali), 
+                 sample=unlist(sce$treatment)))
+ca[, percent := 100*(N/sum(N)), by = sample]
+
+plot_cluster_comp <- ggplot(as.data.frame(ca), aes(sample, cluster, fill=percent)) + 
+  geom_tile() + 
+  scale_fill_gradientn(colors = viridis_pal(option = "D", end = 0.95, direction = -1)(10)) +
+  geom_text(aes(label= round(percent, digits = 2)) , color = "white") + 
+  coord_fixed(ratio = 0.25) +
+  guides(fill = guide_colourbar(barwidth = 0.5,barheight = 18))
+
+plot_cluster_comp
+```
+
+# Epilog
+
+```{r save object}
+if (SAVING) {
+  write.csv2(colData(sce), "../Data/012_cellLabels_colData.csv")
+  saveRDS(sce, "../Data/Sce_SingleCell.rds")
+}
+```
+
+```{r update Seurat object}
+library(Seurat)
+seu <- readRDS("../Data/Seurat_SingleCell.rds")
+seu@meta.data <- as.data.frame(colData(sce))
+saveRDS(seu, "../Data/Seurat_SingleCell.rds")
+```
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+

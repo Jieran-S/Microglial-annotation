@@ -3,8 +3,10 @@ title: "Bulk-Seq Analysis for Microglial cells"
 subtitle: "Deconvolution" 
 author: "Jieran Sun"
 format: html
-editor: visual
+editor: source
 ---
+
+# Preamble
 
 ## Loading libraries
 
@@ -25,7 +27,7 @@ suppressPackageStartupMessages({
 
 ```{r load Bulk}
 # Modify your path, if the filteredCounts mtx do not exist, run 031_Bulk_Preprocessing.qmd
-bulkmtx <- read.csv2("~/Microglial/Data/filteredCounts.csv", header = TRUE, row.names = 1)
+bulkmtx <- read.csv2("../Data/031_Bulk_filteredCounts.csv", header = TRUE, row.names = 1)
 bulkmtx <- as.matrix(bulkmtx)
 
 group <- rep(c("KO", "WT"), each = 5)
@@ -35,15 +37,14 @@ names(group) <- colnames(bulkmtx)
 
 ```{r single cell}
 # Modify your path
-sce <- readRDS("~/Microglial/Data/Annotated_sce.rds")
+sce <- readRDS("../Data/Sce_SingleCell.rds")
 ```
 
-## Deconvolution
-
+# Deconvolution
 
 ```{r deconvolution}
 # Marker list 
-markers <- readxl::read_xlsx("~/Microglial/Microglial-annotation/Markers/Marker_list_BU.xlsx")
+markers <- readxl::read_xlsx("../Markers/Marker_list_BU.xlsx")
 markers <- unlist(markers[, -ncol(markers)])
 markers <- markers[!is.na(markers)]
 
@@ -74,4 +75,10 @@ plot_cluster_comp <- ggplot(as.data.frame(DeconMtx), aes(cell_type, sample, fill
 plot_cluster_comp
 ```
 
+
+# Epilog
+
+```{r}
+sessionInfo()
+```
 

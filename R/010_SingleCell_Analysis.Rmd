@@ -45,7 +45,7 @@ library(pheatmap)
 
 knitr::opts_chunk$set(echo = FALSE)
 
-data_path <- "../Data"
+data_path <- "../../Data"
 working_path <- getwd()
 # setwd(working_path)
 ```
@@ -443,18 +443,22 @@ Plot2 <- DimPlot(seurat_combi, group.by = "orig.ident",pt.size = 0.3, cols = pal
 (plot_clusterComp <- plotDataComposition(seruatObject = seurat_combi, classLabel = "seurat_clusters", dataLabel = "orig.ident"))
 ```
 
+
+
+
+
 ## Import marker gene list
 
 Here we plot the heatmap for all the marker genes found in the dataset, regardless of their expression level.
 ```{r Loading the marker gene lists}
-old_way_loading = TRUE
+old_way_loading = FALSE
 
 if (old_way_loading){
   
   # Import list of marker genes 
-  marker_list <- readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[-8]
+  marker_list <- readxl::read_excel(file.path(working_path,"../Markers/Marker_list_BU.xlsx"))[-8]
   
-  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"Markers/Marker_list_BU.xlsx"))[8])
+  Meta_Data <- unlist(readxl::read_excel(file.path(working_path,"../Markers/Marker_list_BU.xlsx"))[8])
   meta_data <- unlist(data.table::tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 2))
   names(meta_data) <- unlist(tstrsplit(Meta_Data, ":", fixed = TRUE, keep = 1))
   meta_data <- meta_data[!is.na(meta_data)]
@@ -466,7 +470,7 @@ if (old_way_loading){
   
 } else{
   # Extract the data directly from the system
-  exist_list <- readRDS("Markers/marker_list.rds")
+  exist_list <- readRDS("../Markers/marker_list.rds")
   meta_data  <- exist_list[[length(exist_list)]]
   exist_list <- lapply(exist_list[-length(exist_list)], function(x){
     x <- x[!is.na(x)]
@@ -474,6 +478,13 @@ if (old_way_loading){
 }
 ```
 
+
+```{r}
+exist_list$Meta_data["PAM"] <- "Pre-active Microglia"
+m <- as.data.table(exist_list$Meta_data[-c(3,1,7)], keep.rownames = TRUE) 
+setnames(m, c("Acronym","Full Name"))
+m
+```
 
 ```{r Overall Heatmap for features}
 
@@ -828,6 +839,29 @@ if (saving == TRUE) {
 ```
 
 
+```{r plot the last DEG HMP}
+sce_labelCaliAll <- readRDS("../Annotated_sce.rds")
+sce_labelCaliAll <- scuttle::logNormCounts(sce_labelCaliAll)
+# Get both KO and WT subset
+sce_labelCaliWT <- sce_labelCaliAll[, sce_labelCaliAll$orig.ident == "WT"]
+sce_labelCaliKO <- sce_labelCaliAll[, sce_labelCaliAll$orig.ident != "WT"]
+
+# Apply and visualize on both of them
+sce_labelCali_agg <- muscat::aggregateData(sce_labelCaliKO, assay = "logcounts", by = "label_calibrated", fun = "mean")
+assayNames(sce_labelCali_agg) <- "logcounts"
+sechm(sce_labelCali_agg, features = as.character(keyGenes), assayName = "logcounts", show_rownames = TRUE, show_colnames = TRUE, do.scale = TRUE, 
+      hmcols = viridis_pal(option = "C")(100), 
+      sortRowsOn = NULL, cluster_rows = FALSE)
+```
+```{r}
+GPNMB_Exp <-  as.data.frame(assay(sce_labelCaliAll, "logcounts")["Gpnmb",])
+colnames(GPNMB_Exp) <- "GPNMB"
+GPNMB_Exp$Sample <- sce_labelCaliAll$orig.ident[match(rownames(GPNMB_Exp), rownames(colData(sce_labelCaliAll)))]
+GPNMB_Exp$Label <- sce_labelCaliAll$label_calibrated[match(rownames(GPNMB_Exp), rownames(colData(sce_labelCaliAll)))]
+#GPNMB_Exp <- GPNMB_Exp[GPNMB_Exp$GPNMB>0, ]
+
+ggplot(GPNMB_Exp, aes(x = Sample, y = GPNMB, fill = Sample)) + geom_violin() + ylab("GPNMB logcounts")
+```
 
 # Epilog
 

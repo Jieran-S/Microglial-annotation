@@ -1,0 +1,74 @@
+---
+title: "Bulk-Seq GO analysis"
+author: "Jieran Sun"
+format: html
+editor: source
+---
+
+# Preamble
+
+## Loading libraries
+
+```{r set up, include=FALSE}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(clusterProfiler)
+  library(org.Mm.eg.db)
+  library(enrichplot)
+})
+```
+
+```{r load data}
+resDF <- read.csv2("../Data/DEG_Bulk_no28.csv")
+y <- readRDS("../Data/031_DGEList.rds")
+```
+
+# ORA analysis
+
+```{r load gene list}
+# Get ENSEMBL gene id from the key DEG results
+# All variables are from 031_Bulk_DEAnalysis qmd
+resDF <- resDF[!is.na(resDF$padj), ]
+resDF$Symbol <- rownames(resDF)
+resDF$isDEG <- resDF$padj < 0.05
+resDF$Geneid <- y$genes$Geneid[match(resDF$X, y$genes$Symbol)]
+
+resDF <- resDF[order(resDF$padj),]
+
+keyEnsemUp <- resDF[resDF$log2FoldChange > 0, c("Geneid", "padj")]
+keyEnsemDown <- resDF[resDF$log2FoldChange < 0, c("Geneid", "padj")]
+```
+
+```{r run that enrichGO}
+enrichedGenes <- keyEnsemDown
+
+backgroundGenes <- enrichedGenes[!is.na(enrichedGenes$Geneid), "Geneid"]
+enrichedGenes <- enrichedGenes[!is.na(enrichedGenes$Geneid), ][enrichedGenes$padj < 0.1, "Geneid"]
+
+
+ego <- enrichGO(gene         = enrichedGenes,
+                OrgDb         = org.Mm.eg.db,
+                keyType       = 'ENSEMBL',
+                ont           = "ALL",
+                universe      = backgroundGenes,
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.1,
+                qvalueCutoff  = 0.1)
+```
+
+# Result inspection and visualization
+
+```{r}
+head(ego, Inf)
+```
+
+```{r dot plot visualization}
+dotplot(ego, showCategory=30, label_format=80) + ggtitle("Down-regluated genes")
+```
+
+
+# Epilog
+
+```{r}
+sessionInfo()
+```
